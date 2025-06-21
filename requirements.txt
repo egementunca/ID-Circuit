@@ -1,0 +1,27 @@
+# Core quantum computing
+qiskit>=1.0.0
+numpy>=1.21.0
+scipy>=1.7.0
+
+# Web framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+httpx>=0.25.0
+pydantic>=2.0.0
+
+# Async & Redis (optional)
+aioredis>=2.0.0
+
+# Utilities
+colorama>=0.4.4
+tqdm>=4.64.0
+
+# Development tools
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Optional: For better performance
+# numba>=0.56.0  # For JIT compilation
+# cython>=0.29.0  # For C extensions 
