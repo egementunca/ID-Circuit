@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identity Circuit Factory</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #4a5568;
+            text-align: center;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            text-align: center;
+            color: #718096;
+            font-size: 1.1em;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #ccc;
+            margin-bottom: 1em;
+        }
+
+        .tab {
+            padding: 0.5em 1.5em;
+            cursor: pointer;
+            border: none;
+            background: none;
+            outline: none;
+            font-size: 1em;
+            transition: background 0.2s;
+        }
+
+        .tab.active {
+            border-bottom: 2px solid #007bff;
+            font-weight: bold;
+            background: #f0f0f0;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+        }
+
+        .card h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+
+        .status {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            text-align: center;
+            margin: 5px 0;
+        }
+
+        .status.pending { background: #fef5e7; color: #d69e2e; }
+        .status.running { background: #e6fffa; color: #319795; }
+        .status.completed { background: #f0fff4; color: #38a169; }
+        .status.failed { background: #fed7d7; color: #e53e3e; }
+
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        .table th, .table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .table th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .table tr:hover {
+            background: #f7fafc;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .error {
+            background: #fed7d7;
+            color: #e53e3e;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .success {
+            background: #f0fff4;
+            color: #38a169;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .circuit-gates {
+            font-family: 'Courier New', monospace;
+            background: #f7fafc;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+
+        .metric {
+            text-align: center;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+
+        .metric-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-label {
+            font-size: 0.9em;
+            color: #718096;
+            margin-top: 5px;
+        }
+
+        .search-box {
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        .breadcrumb span {
+            color: #718096;
+            cursor: pointer;
+        }
+
+        .breadcrumb span:hover {
+            color: #667eea;
+        }
+
+        .breadcrumb .separator {
+            margin: 0 10px;
+            color: #cbd5e0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .tabs {
+                flex-direction: column;
+            }
+            
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Modal styles */
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.6);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 700px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        #circuit-diagram-content {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: #f4f4f4;
+            padding: 1em;
+            border-radius: 5px;
+            white-space: pre;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 Identity Circuit Factory</h1>
+            <p>Advanced quantum circuit generation, analysis, and optimization</p>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="showTab('jobs')">🚀 Job Manager</div>
+            <div class="tab" onclick="showTab('database')">🗄️ Database</div>
+            <div class="tab" onclick="showTab('analysis')">📊 Analysis</div>
+            <div class="tab" onclick="showTab('settings')">⚙️ Settings</div>
+            <div class="tab" onclick="showTab('logs')">Logs</div>
+        </div>
+
+        <div id="jobs" class="tab-content active">
+            <h2>Job Management</h2>
+            
+            <div class="grid">
+                <div class="card">
+                    <h3>Create New Job</h3>
+                    <div class="form-group">
+                        <label for="jobType">Job Type</label>
+                        <select id="jobType" onchange="updateJobForm()">
+                            <option value="seed_generation">Seed Generation</option>
+                            <option value="unrolling">Unrolling</option>
+                            <option value="post_processing">Post-Processing</option>
+                            <option value="debris_analysis">Debris Analysis</option>
+                        </select>
+                    </div>
+
+                    <div id="job-form-fields">
+                        <!-- Fields for Seed Generation -->
+                        <div class="form-group job-form-field" data-job-type="seed_generation">
+                            <label for="width">Width (Qubits)</label>
+                            <input type="number" id="width" value="3">
+                        </div>
+                        <div class="form-group job-form-field" data-job-type="seed_generation">
+                            <label for="length">Length (Gates)</label>
+                            <input type="number" id="length" value="5">
+                        </div>
+                        <div class="form-group job-form-field" data-job-type="seed_generation">
+                            <label for="maxInverseGates">Max Inverse Gates</label>
+                            <input type="number" id="maxInverseGates" value="40">
+                        </div>
+
+                        <!-- Fields for Unrolling, Post-Processing, and Debris Analysis -->
+                        <div class="form-group job-form-field" data-job-type="unrolling post_processing debris_analysis" style="display: none;">
+                            <label for="dimGroupId">Dimension Group ID</label>
+                            <input type="number" id="dimGroupId" placeholder="Enter Dimension Group ID">
+                        </div>
+
+                        <!-- Fields for Debris Analysis -->
+                        <div class="form-group job-form-field" data-job-type="debris_analysis" style="display: none;">
+                            <label for="circuitId">Circuit ID</label>
+                            <input type="number" id="circuitId" placeholder="Enter Circuit ID to analyze">
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="useJobQueue">Execution Mode</label>
+                        <select id="useJobQueue">
+                            <option value="false">Run Immediately</option>
+                            <option value="true">Add to Job Queue</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="createJob()">Create Job</button>
+                    <button class="btn btn-secondary" onclick="loadJobs()">Refresh Jobs</button>
+                </div>
+
+                <div class="card">
+                    <h3>Job Queue Status</h3>
+                    <div id="queueStatus">
+                        <div class="loading">Loading queue status...</div>
+                    </div>
+                    <button class="btn btn-success" onclick="startJobQueue()">Start Queue</button>
+                    <button class="btn btn-danger" onclick="stopJobQueue()">Stop Queue</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Active Jobs</h3>
+                <div id="jobsList">
+                    <div class="loading">Loading jobs...</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="database" class="tab-content">
+            <h2>Database Browser</h2>
+            <div class="db-controls">
+                <button id="backToDimGroupsBtn" class="btn btn-secondary" style="display:none;" onclick="showDimensionGroups()">← Back to Dimension Groups</button>
+                <input type="text" id="searchInput" placeholder="Search circuits, dimension groups...">
+            </div>
+            
+            <div id="db-content-area">
+                <!-- Content will be loaded here -->
+            </div>
+            
+            <div id="circuit-viewer-modal" class="modal">
+                <div class="modal-content">
+                    <span class="close" onclick="closeModal()">&times;</span>
+                    <h3>Circuit Diagram</h3>
+                    <pre id="circuit-diagram-content"></pre>
+                </div>
+            </div>
+        </div>
+
+        <div id="analysis" class="tab-content">
+            <h2>Circuit Analysis</h2>
+            
+            <div class="grid">
+                <div class="card">
+                    <h3>Factory Statistics</h3>
+                    <div id="factoryStats">
+                        <div class="loading">Loading statistics...</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Quick Analysis</h3>
+                    <form id="analysisForm">
+                        <div class="form-group">
+                            <label>Dimension Group ID</label>
+                            <input type="number" id="analysisDimGroupId" min="1">
+                        </div>
+                        <button type="submit" class="btn">Analyze</button>
+                    </form>
+                    <div id="analysisResult"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>ML Features & Recommendations</h3>
+                <div id="mlAnalysis">
+                    <div class="loading">Select a circuit for ML analysis...</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="settings" class="tab-content">
+            <h2>Factory Settings</h2>
+            
+            <div class="grid">
+                <div class="card">
+                    <h3>API Configuration</h3>
+                    <div class="form-group">
+                        <label>API Base URL</label>
+                        <input type="text" id="apiUrl" value="http://localhost:8000/api/v1">
+                    </div>
+                    <button class="btn" onclick="testConnection()">Test Connection</button>
+                    <div id="connectionStatus"></div>
+                </div>
+
+                <div class="card">
+                    <h3>Factory Configuration</h3>
+                    <div class="form-group">
+                        <label>Database Path</label>
+                        <input type="text" id="dbPath" value="identity_circuits.db">
+                    </div>
+                    <div class="form-group">
+                        <label>Max Equivalents</label>
+                        <input type="number" id="maxEquivalents" value="10000">
+                    </div>
+                    <button class="btn" onclick="saveSettings()">Save Settings</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="logs" class="tab-content">
+            <h2>Server Logs (Live)</h2>
+            <pre id="logViewer" style="background:#222;color:#eee;padding:1em;height:300px;overflow:auto;"></pre>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api/v1';
+        let currentView = 'dimension_groups';
+        let currentDimGroupId = null;
+        let currentCircuitId = null;
+
+        function showTab(tabName) {
+            // Remove 'active' from all tabs
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            // Remove 'active' from all tab-contents
+            document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+            // Add 'active' to the selected tab
+            document.querySelectorAll('.tab').forEach(tab => {
+                if (tab.textContent.trim().toLowerCase().includes(tabName)) {
+                    tab.classList.add('active');
+                }
+            });
+            // Add 'active' to the selected tab-content
+            const content = document.getElementById(tabName);
+            if (content) content.classList.add('active');
+            // Load tab-specific data
+            switch(tabName) {
+                case 'jobs':
+                    loadJobs();
+                    loadQueueStatus();
+                    break;
+                case 'database':
+                    showDimensionGroups();
+                    break;
+                case 'analysis':
+                    loadFactoryStats();
+                    break;
+                case 'logs':
+                    loadLogs();
+                    break;
+            }
+            // Logs auto-refresh
+            if (tabName === 'logs') {
+                loadLogs();
+                logsInterval = setInterval(loadLogs, 3000);
+            } else if (logsInterval) {
+                clearInterval(logsInterval);
+                logsInterval = null;
+            }
+        }
+
+        async function loadJobs() {
+            try {
+                const response = await fetch(`${API_BASE}/jobs`);
+                const jobs = await response.json();
+                
+                const jobsHtml = jobs.length > 0 ? `
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>Status</th>
+                                <th>Parameters</th>
+                                <th>Created</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${jobs.map(job => `
+                                <tr>
+                                    <td>${job.id}</td>
+                                    <td>${job.job_type}</td>
+                                    <td><span class="status ${job.status}">${job.status}</span></td>
+                                    <td>${JSON.stringify(job.parameters).substring(0, 50)}...</td>
+                                    <td>${new Date(job.created_at).toLocaleString()}</td>
+                                    <td>
+                                        ${job.status === 'pending' ? 
+                                            `<button class="btn btn-danger" onclick="cancelJob(${job.id})">Cancel</button>` : 
+                                            job.status === 'completed' ? 
+                                                `<button class="btn" onclick="viewJobResult(${job.id})">View Result</button>` : ''
+                                        }
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                ` : '<p>No jobs found.</p>';
+                
+                document.getElementById('jobsList').innerHTML = jobsHtml;
+            } catch (error) {
+                document.getElementById('jobsList').innerHTML = `<div class="error">Error loading jobs: ${error.message}</div>`;
+            }
+        }
+
+        async function loadQueueStatus() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const health = await response.json();
+                
+                document.getElementById('queueStatus').innerHTML = `
+                    <div class="metrics">
+                        <div class="metric">
+                            <div class="metric-value">${health.job_queue_running ? '🟢' : '🔴'}</div>
+                            <div class="metric-label">Queue Status</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${health.database_connected ? '🟢' : '🔴'}</div>
+                            <div class="metric-label">Database</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${health.sat_solver_available ? '🟢' : '🔴'}</div>
+                            <div class="metric-label">SAT Solver</div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('queueStatus').innerHTML = `<div class="error">Error loading queue status: ${error.message}</div>`;
+            }
+        }
+
+        function updateJobForm() {
+            const jobType = document.getElementById('jobType').value;
+            const allFields = document.querySelectorAll('.job-form-field');
+
+            allFields.forEach(field => {
+                const supportedTypes = field.dataset.jobType.split(' ');
+                if (supportedTypes.includes(jobType)) {
+                    field.style.display = 'block';
+                } else {
+                    field.style.display = 'none';
+                }
+            });
+        }
+
+        async function createJob() {
+            const jobType = document.getElementById('jobType').value;
+            const useJobQueue = document.getElementById('useJobQueue').value === 'true';
+            let parameters = {};
+
+            // Gather parameters based on job type
+            if (jobType === 'seed_generation') {
+                parameters = {
+                    width: parseInt(document.getElementById('width').value),
+                    length: parseInt(document.getElementById('length').value),
+                    max_inverse_gates: parseInt(document.getElementById('maxInverseGates').value),
+                    enable_unrolling: true,
+                    enable_post_processing: true,
+                    enable_debris_analysis: true,
+                    enable_ml_analysis: false, // ML analysis disabled for now
+                    use_job_queue: useJobQueue
+                };
+                // For seed generation, we call a different endpoint
+                await generateCircuit(parameters);
+                return;
+
+            } else if (jobType === 'unrolling') {
+                parameters = {
+                    dim_group_id: parseInt(document.getElementById('dimGroupId').value),
+                    // Add other unrolling params if needed, e.g., from a settings modal
+                };
+            } else if (jobType === 'post_processing') {
+                parameters = {
+                    dim_group_id: parseInt(document.getElementById('dimGroupId').value),
+                };
+            } else if (jobType === 'debris_analysis') {
+                parameters = {
+                    dim_group_id: parseInt(document.getElementById('dimGroupId').value),
+                    circuit_id: parseInt(document.getElementById('circuitId').value),
+                };
+            }
+
+            // Generic job creation endpoint
+            try {
+                const response = await fetch('/api/v1/jobs/create', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        job_type: jobType,
+                        parameters: parameters,
+                        priority: 0
+                    })
+                });
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const result = await response.json();
+                showSuccess(`Successfully created job ${result.id} (${jobType})`);
+                loadJobs();
+            } catch (error) {
+                console.error('Error creating job:', error);
+                showError(`Error creating job: ${error.message}`);
+            }
+        }
+
+        async function generateCircuit(params) {
+            // Implementation of generateCircuit function
+        }
+
+        async function startJobQueue() {
+            try {
+                await fetch(`${API_BASE}/jobs/start`, { method: 'POST' });
+                showSuccess('Job queue started');
+                loadQueueStatus();
+            } catch (error) {
+                showError(`Error starting job queue: ${error.message}`);
+            }
+        }
+
+        async function stopJobQueue() {
+            try {
+                await fetch(`${API_BASE}/jobs/stop`, { method: 'POST' });
+                showSuccess('Job queue stopped');
+                loadQueueStatus();
+            } catch (error) {
+                showError(`Error stopping job queue: ${error.message}`);
+            }
+        }
+
+        async function cancelJob(jobId) {
+            try {
+                await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
+                showSuccess('Job cancelled');
+                loadJobs();
+            } catch (error) {
+                showError(`Error cancelling job: ${error.message}`);
+            }
+        }
+
+        function refreshJobs() {
+            loadJobs();
+            loadQueueStatus();
+        }
+
+        async function showDimensionGroups() {
+            currentView = 'dimension_groups';
+            currentDimGroupId = null;
+            document.getElementById('backToDimGroupsBtn').style.display = 'none';
+            const contentArea = document.getElementById('db-content-area');
+            try {
+                const response = await fetch(`${API_BASE}/dim-groups`);
+                if (!response.ok) throw new Error('Failed to load dimension groups');
+                const dimGroups = await response.json();
+                
+                let tableHtml = `
+                    <table id="dbTable">
+                        <thead><tr><th>ID</th><th>Width</th><th>Length</th><th>Equivalents</th><th>Status</th><th>Actions</th></tr></thead>
+                        <tbody>`;
+                for (const dg of dimGroups) {
+                    tableHtml += `
+                        <tr>
+                            <td>${dg.id}</td>
+                            <td>${dg.width}</td>
+                            <td>${dg.length}</td>
+                            <td>${dg.total_equivalents}</td>
+                            <td>${dg.is_processed ? '✅ Processed' : '⏳ Pending'}</td>
+                            <td>
+                                <button class="btn" onclick="showRepresentatives(${dg.id})">View Representatives</button>
+                                <button class="btn btn-secondary" onclick="analyzeDimGroup(${dg.id})">Analyze</button>
+                            </td>
+                        </tr>`;
+                }
+                tableHtml += `</tbody></table>`;
+                contentArea.innerHTML = tableHtml;
+            } catch (error) {
+                contentArea.innerHTML = `<div class="error-box">Error loading dimension groups: ${error.message}</div>`;
+            }
+        }
+
+        async function showRepresentatives(dimGroupId) {
+            currentView = 'representatives';
+            currentDimGroupId = dimGroupId;
+            document.getElementById('backToDimGroupsBtn').style.display = 'inline-block';
+            const contentArea = document.getElementById('db-content-area');
+            try {
+                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/representatives`);
+                if (!response.ok) throw new Error('Failed to load representatives');
+                const representatives = await response.json();
+
+                let tableHtml = `
+                    <h3>Representatives for Dimension Group ${dimGroupId}</h3>
+                    <table id="dbTable">
+                        <thead><tr><th>Circuit ID</th><th>Gate Composition (N,C,CC)</th><th>Composition Count</th><th>Actions</th></tr></thead>
+                        <tbody>`;
+                for (const rep of representatives) {
+                    tableHtml += `
+                        <tr>
+                            <td>${rep.circuit.id}</td>
+                            <td>${JSON.stringify(rep.gate_composition)}</td>
+                            <td>${rep.composition_count} circuits</td>
+                            <td>
+                                <button class="btn" onclick="viewCircuitAscii(${rep.circuit.id})">View Diagram</button>
+                            </td>
+                        </tr>`;
+                }
+                tableHtml += `</tbody></table>`;
+                contentArea.innerHTML = tableHtml;
+            } catch (error) {
+                contentArea.innerHTML = `<div class="error-box">Error loading representatives: ${error.message}</div>`;
+            }
+        }
+
+        async function viewCircuitAscii(circuitId) {
+            const modal = document.getElementById('circuit-viewer-modal');
+            const diagramContent = document.getElementById('circuit-diagram-content');
+            try {
+                diagramContent.textContent = 'Loading...';
+                modal.style.display = 'block';
+
+                const response = await fetch(`${API_BASE}/circuits/${circuitId}/ascii`);
+                if (!response.ok) throw new Error('Failed to load circuit diagram');
+                const data = await response.json();
+                diagramContent.textContent = data.diagram;
+            } catch (error) {
+                diagramContent.textContent = `Error loading diagram: ${error.message}`;
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('circuit-viewer-modal').style.display = 'none';
+        }
+
+        // Close modal if user clicks outside of it
+        window.onclick = function(event) {
+            const modal = document.getElementById('circuit-viewer-modal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        async function loadFactoryStats() {
+            try {
+                const response = await fetch(`${API_BASE}/stats`);
+                const stats = await response.json();
+                
+                document.getElementById('factoryStats').innerHTML = `
+                    <div class="metrics">
+                        <div class="metric">
+                            <div class="metric-value">${stats.total_dim_groups}</div>
+                            <div class="metric-label">Dimension Groups</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${stats.total_circuits}</div>
+                            <div class="metric-label">Total Circuits</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${stats.total_seeds_generated}</div>
+                            <div class="metric-label">Seeds Generated</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${stats.total_equivalents_generated}</div>
+                            <div class="metric-label">Equivalents</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${stats.total_simplifications}</div>
+                            <div class="metric-label">Simplifications</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${stats.active_jobs}</div>
+                            <div class="metric-label">Active Jobs</div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('factoryStats').innerHTML = `<div class="error">Error loading stats: ${error.message}</div>`;
+            }
+        }
+
+        document.getElementById('analysisForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const dimGroupId = document.getElementById('analysisDimGroupId').value;
+            if (!dimGroupId) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/analysis`);
+                const analysis = await response.json();
+                
+                document.getElementById('analysisResult').innerHTML = `
+                    <div class="success">Analysis completed!</div>
+                    <div class="metrics">
+                        <div class="metric">
+                            <div class="metric-value">${analysis.total_equivalents}</div>
+                            <div class="metric-label">Equivalents</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">${analysis.is_processed ? 'Yes' : 'No'}</div>
+                            <div class="metric-label">Processed</div>
+                        </div>
+                    </div>
+                    <h4>Debris Analysis:</h4>
+                    <pre>${JSON.stringify(analysis.debris_analysis, null, 2)}</pre>
+                    <h4>ML Analysis:</h4>
+                    <pre>${JSON.stringify(analysis.ml_analysis, null, 2)}</pre>
+                `;
+            } catch (error) {
+                document.getElementById('analysisResult').innerHTML = `<div class="error">Analysis failed: ${error.message}</div>`;
+            }
+        });
+
+        async function analyzeCircuit(circuitId) {
+            try {
+                const response = await fetch(`${API_BASE}/ml/analysis/${circuitId}`);
+                const analysis = await response.json();
+                
+                document.getElementById('mlAnalysis').innerHTML = `
+                    <h4>ML Analysis for Circuit ${circuitId}</h4>
+                    <div class="metrics">
+                        <div class="metric">
+                            <div class="metric-value">${analysis.complexity_prediction.toFixed(2)}</div>
+                            <div class="metric-label">Complexity Score</div>
+                        </div>
+                    </div>
+                    <h4>Features:</h4>
+                    <pre>${JSON.stringify(analysis.features, null, 2)}</pre>
+                    <h4>Optimization Suggestions:</h4>
+                    <ul>
+                        ${analysis.optimization_suggestions.map(suggestion => `<li>${suggestion}</li>`).join('')}
+                    </ul>
+                `;
+            } catch (error) {
+                document.getElementById('mlAnalysis').innerHTML = `<div class="error">ML analysis failed: ${error.message}</div>`;
+            }
+        }
+
+        async function analyzeDimGroup(dimGroupId) {
+            try {
+                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/analysis`);
+                const analysis = await response.json();
+                
+                // Switch to analysis tab and show results
+                showTab('analysis');
+                document.getElementById('analysisDimGroupId').value = dimGroupId;
+                document.getElementById('analysisForm').dispatchEvent(new Event('submit'));
+            } catch (error) {
+                showError(`Analysis failed: ${error.message}`);
+            }
+        }
+
+        async function testConnection() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const health = await response.json();
+                
+                document.getElementById('connectionStatus').innerHTML = `
+                    <div class="success">
+                        ✅ Connection successful!<br>
+                        Status: ${health.status}<br>
+                        Database: ${health.database_connected ? 'Connected' : 'Disconnected'}<br>
+                        SAT Solver: ${health.sat_solver_available ? 'Available' : 'Unavailable'}
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('connectionStatus').innerHTML = `
+                    <div class="error">❌ Connection failed: ${error.message}</div>
+                `;
+            }
+        }
+
+        function saveSettings() {
+            // Save settings to localStorage
+            const settings = {
+                apiUrl: document.getElementById('apiUrl').value,
+                dbPath: document.getElementById('dbPath').value,
+                maxEquivalents: document.getElementById('maxEquivalents').value
+            };
+            
+            localStorage.setItem('factorySettings', JSON.stringify(settings));
+            showSuccess('Settings saved!');
+        }
+
+        function loadSettings() {
+            const settings = JSON.parse(localStorage.getItem('factorySettings') || '{}');
+            
+            if (settings.apiUrl) document.getElementById('apiUrl').value = settings.apiUrl;
+            if (settings.dbPath) document.getElementById('dbPath').value = settings.dbPath;
+            if (settings.maxEquivalents) document.getElementById('maxEquivalents').value = settings.maxEquivalents;
+        }
+
+        function showSuccess(message) {
+            const div = document.createElement('div');
+            div.className = 'success';
+            div.textContent = message;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 3000);
+        }
+
+        function showError(message) {
+            const div = document.createElement('div');
+            div.className = 'error';
+            div.textContent = message;
+            document.body.appendChild(div);
+            setTimeout(() => div.remove(), 5000);
+        }
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const searchTerm = e.target.value.toLowerCase();
+            const rows = document.querySelectorAll('.table tbody tr');
+            
+            rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(searchTerm) ? '' : 'none';
+            });
+        });
+
+        async function loadLogs() {
+            try {
+                const response = await fetch(`${API_BASE}/logs`);
+                const data = await response.json();
+                document.getElementById('logViewer').textContent = data.logs.join('\n');
+            } catch (error) {
+                document.getElementById('logViewer').textContent = 'Error loading logs: ' + error.message;
+            }
+        }
+
+        let logsInterval = null;
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSettings();
+            showTab('jobs');
+            updateJobForm(); // Initialize form on page load
+            loadJobs();
+            loadFactoryStats();
+        });
+    </script>
+</body>
+</html> 
