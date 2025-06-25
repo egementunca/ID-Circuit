@@ -27,6 +27,8 @@ class CircuitRecord:
     permutation: List[int]
     complexity_walk: Optional[List[int]] = None
     circuit_hash: Optional[str] = None
+    dim_group_id: Optional[int] = None  # Added to fix attribute access issues
+    representative_id: Optional[int] = None  # Points to representative circuit (self if representative)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -36,7 +38,9 @@ class CircuitRecord:
             'gates': self.gates,
             'permutation': self.permutation,
             'complexity_walk': self.complexity_walk,
-            'circuit_hash': self.circuit_hash
+            'circuit_hash': self.circuit_hash,
+            'dim_group_id': self.dim_group_id,
+            'representative_id': self.representative_id
         }
 
 @dataclass
@@ -65,6 +69,7 @@ class RepresentativeRecord:
     circuit_id: int  # The actual representative circuit
     gate_composition: Tuple[int, int, int]  # (n1, n2, n3) - NOT, CNOT, CCNOT counts
     is_primary: bool = False  # Whether this is the primary representative
+    fully_unrolled: bool = False  # Whether this representative has been fully unrolled
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -72,7 +77,8 @@ class RepresentativeRecord:
             'dim_group_id': self.dim_group_id,
             'circuit_id': self.circuit_id,
             'gate_composition': self.gate_composition,
-            'is_primary': self.is_primary
+            'is_primary': self.is_primary,
+            'fully_unrolled': self.fully_unrolled
         }
 
 @dataclass
@@ -186,7 +192,9 @@ class CircuitDatabase:
                     permutation TEXT NOT NULL,
                     complexity_walk TEXT,
                     circuit_hash TEXT UNIQUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    representative_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (representative_id) REFERENCES circuits(id)
                 )
             """)
             
@@ -224,6 +232,7 @@ class CircuitDatabase:
                     circuit_id INTEGER NOT NULL,
                     gate_composition TEXT NOT NULL,  -- JSON of (n1, n2, n3)
                     is_primary BOOLEAN DEFAULT FALSE,
+                    fully_unrolled BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (dim_group_id) REFERENCES dim_groups(id),
                     FOREIGN KEY (circuit_id) REFERENCES circuits(id)
@@ -325,8 +334,17 @@ class CircuitDatabase:
     
     def _compute_circuit_hash(self, gates: List[Tuple], permutation: List[int]) -> str:
         """Compute a hash for circuit identity."""
-        circuit_data = json.dumps([gates, permutation], sort_keys=True)
-        return hashlib.sha256(circuit_data.encode()).hexdigest()
+        try:
+            # Convert gates and permutation to JSON strings for consistent hashing
+            gates_str = json.dumps(gates, sort_keys=True)
+            permutation_str = json.dumps(permutation, sort_keys=True)
+            circuit_data = gates_str + permutation_str
+            return hashlib.sha256(circuit_data.encode()).hexdigest()
+        except (TypeError, json.JSONEncodeError) as e:
+            logger.warning(f"Failed to compute circuit hash: {e}")
+            # Fallback to string representation
+            circuit_data = str(gates) + str(permutation)
+            return hashlib.sha256(circuit_data.encode()).hexdigest()
     
     def store_circuit(self, circuit: CircuitRecord) -> int:
         """Store a circuit and return its ID."""
@@ -335,15 +353,16 @@ class CircuitDatabase:
         
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                INSERT OR IGNORE INTO circuits (width, gate_count, gates, permutation, complexity_walk, circuit_hash)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO circuits (width, gate_count, gates, permutation, complexity_walk, circuit_hash, representative_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 circuit.width,
                 circuit.gate_count,
                 json.dumps(circuit.gates),
                 json.dumps(circuit.permutation),
                 json.dumps(circuit.complexity_walk) if circuit.complexity_walk else None,
-                circuit.circuit_hash
+                circuit.circuit_hash,
+                circuit.representative_id
             ))
             
             if cursor.lastrowid == 0:
@@ -356,29 +375,41 @@ class CircuitDatabase:
         """Retrieve a circuit by ID."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT id, width, gate_count, gates, permutation, complexity_walk, circuit_hash
-                FROM circuits WHERE id = ?
+                SELECT c.id, c.width, c.gate_count, c.gates, c.permutation, c.complexity_walk, c.circuit_hash,
+                       dgc.dim_group_id, c.representative_id
+                FROM circuits c
+                LEFT JOIN dim_group_circuits dgc ON c.id = dgc.circuit_id
+                WHERE c.id = ?
             """, (circuit_id,))
             row = cursor.fetchone()
             
             if row:
-                return CircuitRecord(
-                    id=row[0],
-                    width=row[1],
-                    gate_count=row[2],
-                    gates=json.loads(row[3]),
-                    permutation=json.loads(row[4]),
-                    complexity_walk=json.loads(row[5]) if row[5] else None,
-                    circuit_hash=row[6]
-                )
+                try:
+                    return CircuitRecord(
+                        id=row[0],
+                        width=row[1],
+                        gate_count=row[2],
+                        gates=json.loads(row[3]) if row[3] is not None else [],
+                        permutation=json.loads(row[4]) if row[4] is not None else list(range(row[1])),
+                        complexity_walk=json.loads(row[5]) if row[5] is not None else None,
+                        circuit_hash=row[6],
+                        dim_group_id=row[7],
+                        representative_id=row[8]
+                    )
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.error(f"Failed to parse circuit {circuit_id} data: {e}")
+                    return None
             return None
     
     def get_circuit_by_hash(self, circuit_hash: str) -> Optional[CircuitRecord]:
         """Retrieve a circuit by its hash."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT id, width, gate_count, gates, permutation, complexity_walk, circuit_hash
-                FROM circuits WHERE circuit_hash = ?
+                SELECT c.id, c.width, c.gate_count, c.gates, c.permutation, c.complexity_walk, c.circuit_hash,
+                       dgc.dim_group_id
+                FROM circuits c
+                LEFT JOIN dim_group_circuits dgc ON c.id = dgc.circuit_id
+                WHERE c.circuit_hash = ?
             """, (circuit_hash,))
             row = cursor.fetchone()
             
@@ -390,7 +421,8 @@ class CircuitDatabase:
                     gates=json.loads(row[3]),
                     permutation=json.loads(row[4]),
                     complexity_walk=json.loads(row[5]) if row[5] else None,
-                    circuit_hash=row[6]
+                    circuit_hash=row[6],
+                    dim_group_id=row[7]
                 )
             return None
     
@@ -468,36 +500,54 @@ class CircuitDatabase:
         """Get all circuits in a dimension group."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT c.id, c.width, c.gate_count, c.gates, c.permutation, c.complexity_walk, c.circuit_hash
+                SELECT c.id, c.width, c.gate_count, c.gates, c.permutation, c.complexity_walk, c.circuit_hash, c.representative_id
                 FROM circuits c
                 JOIN dim_group_circuits dgc ON c.id = dgc.circuit_id
                 WHERE dgc.dim_group_id = ?
+                ORDER BY c.id
             """, (dim_group_id,))
             
-            return [
-                CircuitRecord(
-                    id=row[0],
-                    width=row[1],
-                    gate_count=row[2],
-                    gates=json.loads(row[3]),
-                    permutation=json.loads(row[4]),
-                    complexity_walk=json.loads(row[5]) if row[5] else None,
-                    circuit_hash=row[6]
-                )
-                for row in cursor.fetchall()
-            ]
+            circuits = []
+            for row in cursor.fetchall():
+                try:
+                    circuits.append(CircuitRecord(
+                        id=row[0],
+                        width=row[1], 
+                        gate_count=row[2],
+                        gates=json.loads(row[3]) if row[3] is not None else [],
+                        permutation=json.loads(row[4]) if row[4] is not None else list(range(row[1])),
+                        complexity_walk=json.loads(row[5]) if row[5] is not None else None,
+                        circuit_hash=row[6],
+                        dim_group_id=dim_group_id,
+                        representative_id=row[7]
+                    ))
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse circuit {row[0]} in dim group {dim_group_id}: {e}")
+                    continue
+            
+            return circuits
+
+    def get_circuit_dim_group(self, circuit_id: int) -> Optional[int]:
+        """Get the dimension group ID for a circuit."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT dim_group_id FROM dim_group_circuits WHERE circuit_id = ?
+            """, (circuit_id,))
+            row = cursor.fetchone()
+            return row[0] if row else None
     
     def store_representative(self, rep: RepresentativeRecord) -> int:
         """Store a representative and return its ID."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                INSERT INTO representatives (dim_group_id, circuit_id, gate_composition, is_primary)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO representatives (dim_group_id, circuit_id, gate_composition, is_primary, fully_unrolled)
+                VALUES (?, ?, ?, ?, ?)
             """, (
                 rep.dim_group_id,
                 rep.circuit_id,
                 json.dumps(rep.gate_composition),
-                rep.is_primary
+                rep.is_primary,
+                rep.fully_unrolled
             ))
             return cursor.lastrowid
     
@@ -505,7 +555,7 @@ class CircuitDatabase:
         """Get all representatives for a dimension group."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT id, dim_group_id, circuit_id, gate_composition, is_primary
+                SELECT id, dim_group_id, circuit_id, gate_composition, is_primary, fully_unrolled
                 FROM representatives WHERE dim_group_id = ?
             """, (dim_group_id,))
             
@@ -515,7 +565,8 @@ class CircuitDatabase:
                     dim_group_id=row[1],
                     circuit_id=row[2],
                     gate_composition=tuple(json.loads(row[3])),
-                    is_primary=bool(row[4])
+                    is_primary=bool(row[4]),
+                    fully_unrolled=bool(row[5])
                 )
                 for row in cursor.fetchall()
             ]
@@ -524,7 +575,7 @@ class CircuitDatabase:
         """Get a representative by its gate composition within a dimension group."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT id, dim_group_id, circuit_id, gate_composition, is_primary
+                SELECT id, dim_group_id, circuit_id, gate_composition, is_primary, fully_unrolled
                 FROM representatives WHERE dim_group_id = ? AND gate_composition = ?
             """, (dim_group_id, json.dumps(gate_composition)))
             row = cursor.fetchone()
@@ -535,9 +586,31 @@ class CircuitDatabase:
                     dim_group_id=row[1],
                     circuit_id=row[2],
                     gate_composition=tuple(json.loads(row[3])),
-                    is_primary=bool(row[4])
+                    is_primary=bool(row[4]),
+                    fully_unrolled=bool(row[5])
                 )
             return None
+    
+    def get_representatives_by_composition(self, dim_group_id: int, gate_composition: Tuple[int, int, int]) -> List[RepresentativeRecord]:
+        """Get ALL representatives by gate composition within a dimension group."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT id, dim_group_id, circuit_id, gate_composition, is_primary, fully_unrolled
+                FROM representatives WHERE dim_group_id = ? AND gate_composition = ?
+                ORDER BY id
+            """, (dim_group_id, json.dumps(gate_composition)))
+            
+            representatives = []
+            for row in cursor.fetchall():
+                representatives.append(RepresentativeRecord(
+                    id=row[0],
+                    dim_group_id=row[1],
+                    circuit_id=row[2],
+                    gate_composition=tuple(json.loads(row[3])),
+                    is_primary=bool(row[4]),
+                    fully_unrolled=bool(row[5])
+                ))
+            return representatives
     
     def store_equivalent(self, equiv: EquivalentRecord) -> int:
         """Store an equivalent circuit relationship."""
@@ -578,34 +651,256 @@ class CircuitDatabase:
                 })
             return results
     
+    def get_equivalents_for_dim_group(self, dim_group_id: int) -> List[Dict[str, Any]]:
+        """Get all equivalents for circuits in a dimension group (alias for compatibility)."""
+        return self.get_all_equivalents_for_dim_group(dim_group_id)
+    
     def get_all_equivalents_for_dim_group(self, dim_group_id: int) -> List[Dict[str, Any]]:
-        """Get all circuit equivalents in a dimension group across all representatives."""
+        """Get all equivalent circuits for a dimension group."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("""
+                SELECT c.*, e.unroll_type, e.unroll_params
+                FROM circuits c
+                JOIN equivalents e ON c.id = e.circuit_id
+                JOIN representatives r ON e.representative_id = r.circuit_id
+                WHERE r.dim_group_id = ?
+                ORDER BY c.id
+            """, (dim_group_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_equivalent_count_for_dim_group(self, dim_group_id: int) -> int:
+        """Get the total count of equivalent circuits for a dimension group."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("""
-                SELECT e.circuit_id, e.representative_id, e.unroll_type, e.unroll_params,
-                       c.width, c.gate_count, c.gates, c.permutation,
-                       r.gate_composition
+                SELECT COUNT(*)
                 FROM equivalents e
-                JOIN circuits c ON e.circuit_id = c.id
-                JOIN representatives r ON e.representative_id = r.id
+                JOIN representatives r ON e.representative_id = r.circuit_id
                 WHERE r.dim_group_id = ?
             """, (dim_group_id,))
+            return cursor.fetchone()[0]
+
+    def get_equivalents_for_circuit(self, circuit_id: int) -> List[CircuitRecord]:
+        """Get all equivalent circuits for a given circuit."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Get the representative_id for this circuit
+            cursor = conn.execute("SELECT representative_id FROM circuits WHERE id = ?", (circuit_id,))
+            row = cursor.fetchone()
             
-            results = []
+            if not row or not row[0]:
+                return []
+            
+            representative_id = row[0]
+            
+            # Get all circuits that have this representative_id (excluding the representative itself)
+            cursor = conn.execute("""
+                SELECT id, width, gate_count, gates, permutation, complexity_walk, representative_id
+                FROM circuits 
+                WHERE representative_id = ? AND id != ?
+            """, (representative_id, representative_id))
+            
+            equivalents = []
             for row in cursor.fetchall():
-                results.append({
-                    'circuit_id': row[0],
-                    'representative_id': row[1],
-                    'unroll_type': row[2],
-                    'unroll_params': json.loads(row[3]) if row[3] else None,
-                    'width': row[4],
-                    'gate_count': row[5],
-                    'gates': json.loads(row[6]),
-                    'permutation': json.loads(row[7]),
-                    'gate_composition': tuple(json.loads(row[8]))
-                })
-            return results
+                try:
+                    record = CircuitRecord(
+                        id=row[0],
+                        width=row[1],
+                        gate_count=row[2],
+                        gates=json.loads(row[3]) if row[3] is not None else [],
+                        permutation=json.loads(row[4]) if row[4] is not None else list(range(row[1])),
+                        complexity_walk=json.loads(row[5]) if row[5] is not None else None,
+                        representative_id=row[6]
+                    )
+                    equivalents.append(record)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"Failed to parse circuit {row[0]} data: {e}")
+                    continue
+            
+            return equivalents
+
+    def store_equivalent_circuit(self, original_circuit_id: int, gates: List[Tuple], 
+                               width: int, permutation: List[int],
+                               unroll_type: str = "unroll", unroll_params: Optional[Dict] = None) -> int:
+        """Store an equivalent circuit and link it to its representative."""
+        # Create circuit record with representative_id pointing to original circuit
+        circuit = CircuitRecord(
+            id=None,
+            width=width,
+            gate_count=len(gates),
+            gates=gates,
+            permutation=permutation,
+            representative_id=original_circuit_id  # Point to the representative
+        )
+        
+        # Store the circuit
+        circuit_id = self.store_circuit(circuit)
+        
+        # Link equivalent to representative in the equivalents table
+        with sqlite3.connect(self.db_path) as conn:
+            # Get the representative record for the original circuit
+            cursor = conn.execute("""
+                SELECT id FROM representatives 
+                WHERE circuit_id = ?
+            """, (original_circuit_id,))
+            rep_row = cursor.fetchone()
+            
+            if rep_row:
+                rep_id = rep_row[0]
+                
+                # Store the equivalent relationship
+                conn.execute("""
+                    INSERT OR IGNORE INTO equivalents (circuit_id, representative_id, unroll_type, unroll_params)
+                    VALUES (?, ?, ?, ?)
+                """, (circuit_id, rep_id, unroll_type, json.dumps(unroll_params) if unroll_params else None))
+            
+            conn.commit()
+            
+        return circuit_id
+
+    def convert_circuit_to_equivalent(self, circuit_id: int, representative_id: int) -> bool:
+        """Convert an existing circuit to be an equivalent of another circuit."""
+        with sqlite3.connect(self.db_path) as conn:
+            # First check if this conversion is valid
+            cursor = conn.execute("SELECT id FROM circuits WHERE id = ?", (circuit_id,))
+            if not cursor.fetchone():
+                return False
+                
+            cursor = conn.execute("SELECT id FROM circuits WHERE id = ?", (representative_id,))
+            if not cursor.fetchone():
+                return False
+            
+            # Remove circuit from any existing representative relationships
+            conn.execute("DELETE FROM representatives WHERE circuit_id = ?", (circuit_id,))
+            
+            # Add as equivalent to the representative
+            conn.execute("""
+                INSERT OR IGNORE INTO equivalents (circuit_id, representative_id, unroll_type)
+                VALUES (?, ?, 'converted')
+            """, (circuit_id, representative_id))
+            
+            conn.commit()
+            return True
+
+    def update_circuit_as_representative(self, circuit_id: int) -> bool:
+        """Update a circuit to be marked as a representative for its gate composition."""
+        try:
+            # Get the circuit
+            circuit = self.get_circuit(circuit_id)
+            if not circuit:
+                logger.error(f"Circuit {circuit_id} not found")
+                return False
+            
+            # Calculate gate composition
+            gate_composition = self._calculate_gate_composition(circuit.gates)
+            
+            # Get its dimension group
+            dim_group_id = circuit.dim_group_id
+            if not dim_group_id:
+                logger.error(f"Circuit {circuit_id} not associated with a dimension group")
+                return False
+            
+            with sqlite3.connect(self.db_path) as conn:
+                # Set this circuit as its own representative
+                conn.execute("""
+                    UPDATE circuits 
+                    SET representative_id = id 
+                    WHERE id = ?
+                """, (circuit_id,))
+                
+                # Check if a representative already exists for this composition
+                cursor = conn.execute("""
+                    SELECT r.id, r.circuit_id 
+                    FROM representatives r
+                    WHERE r.dim_group_id = ? AND r.gate_composition = ?
+                """, (dim_group_id, json.dumps(gate_composition)))
+                
+                existing_rep = cursor.fetchone()
+                
+                if existing_rep:
+                    existing_rep_id, existing_circuit_id = existing_rep
+                    if existing_circuit_id != circuit_id:
+                        # DISABLED: Don't automatically convert to equivalent - this causes sub-seeds to disappear
+                        # Convert the current circuit to an equivalent of the existing representative
+                        # logger.info(f"Circuit {circuit_id} converted to equivalent of representative {existing_circuit_id} (composition {gate_composition})")
+                        # self.convert_circuit_to_equivalent(circuit_id, existing_rep_id)
+                        logger.info(f"Circuit {circuit_id} could be converted to equivalent of representative {existing_circuit_id} (composition {gate_composition})")
+                        return True
+                    else:
+                        logger.info(f"Circuit {circuit_id} is already the representative for composition {gate_composition}")
+                        return True
+                
+                # If no existing representative, create a new representative record
+                cursor = conn.execute("""
+                    INSERT INTO representatives (dim_group_id, circuit_id, gate_composition, is_primary)
+                    VALUES (?, ?, ?, ?)
+                """, (dim_group_id, circuit_id, json.dumps(gate_composition), False))
+                
+                conn.commit()
+                logger.info(f"Circuit {circuit_id} set as representative for composition {gate_composition}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error updating circuit {circuit_id} as representative: {e}")
+            return False
+
+    def _calculate_gate_composition(self, gates: List[Tuple]) -> Tuple[int, int, int]:
+        """Calculate gate composition (NOT, CNOT, CCNOT counts)."""
+        not_count = cnot_count = ccnot_count = 0
+        
+        for gate in gates:
+            controls, target = gate
+            control_count = len(controls)
+            if control_count == 0:
+                not_count += 1
+            elif control_count == 1:
+                cnot_count += 1
+            elif control_count == 2:
+                ccnot_count += 1
+        
+        return (not_count, cnot_count, ccnot_count)
     
+    def cleanup_duplicate_representatives(self, dim_group_id: int) -> int:
+        """Clean up duplicate representatives with the same gate composition."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Find duplicate representatives (same dim_group_id and gate_composition)
+            cursor = conn.execute("""
+                SELECT gate_composition, COUNT(*) as count, GROUP_CONCAT(id) as rep_ids, GROUP_CONCAT(circuit_id) as circuit_ids
+                FROM representatives 
+                WHERE dim_group_id = ?
+                GROUP BY gate_composition
+                HAVING count > 1
+            """, (dim_group_id,))
+            
+            duplicates_cleaned = 0
+            
+            for row in cursor.fetchall():
+                gate_composition, count, rep_ids_str, circuit_ids_str = row
+                rep_ids = [int(x) for x in rep_ids_str.split(',')]
+                circuit_ids = [int(x) for x in circuit_ids_str.split(',')]
+                
+                # Keep the first representative, convert others to equivalents
+                primary_rep_id = rep_ids[0]
+                primary_circuit_id = circuit_ids[0]
+                
+                logger.info(f"Cleaning up {count} duplicate representatives for composition {gate_composition}")
+                logger.info(f"Keeping representative {primary_rep_id} (circuit {primary_circuit_id})")
+                
+                for i in range(1, len(rep_ids)):
+                    duplicate_rep_id = rep_ids[i]
+                    duplicate_circuit_id = circuit_ids[i]
+                    
+                    # Convert duplicate circuit to equivalent
+                    self.convert_circuit_to_equivalent(duplicate_circuit_id, primary_rep_id)
+                    
+                    # Remove duplicate representative entry
+                    conn.execute("DELETE FROM representatives WHERE id = ?", (duplicate_rep_id,))
+                    
+                    logger.info(f"Converted representative {duplicate_rep_id} (circuit {duplicate_circuit_id}) to equivalent")
+                    duplicates_cleaned += 1
+            
+            conn.commit()
+            return duplicates_cleaned
+
     def mark_dim_group_processed(self, dim_group_id: int):
         """Mark a dimension group as fully processed."""
         with sqlite3.connect(self.db_path) as conn:
@@ -614,6 +909,86 @@ class CircuitDatabase:
                 WHERE id = ?
             """, (dim_group_id,))
     
+    def cleanup_representatives_after_unroll(self, dim_group_id: int, gate_composition: Tuple[int, int, int], 
+                                           primary_representative_id: int, equivalent_circuits: List[List[Tuple]]) -> int:
+        """
+        Clean up representatives after unrolling by converting equivalent circuits to point to the primary representative.
+        Returns the number of representatives that were converted to equivalents.
+        """
+        converted_count = 0
+        
+        with sqlite3.connect(self.db_path) as conn:
+            # Get all representatives for this composition (excluding the primary one)
+            cursor = conn.execute("""
+                SELECT r.id, r.circuit_id, c.gates
+                FROM representatives r
+                JOIN circuits c ON r.circuit_id = c.id
+                WHERE r.dim_group_id = ? AND r.gate_composition = ? AND r.circuit_id != ?
+            """, (dim_group_id, json.dumps(gate_composition), primary_representative_id))
+            
+            other_representatives = cursor.fetchall()
+            
+            for rep_id, circuit_id, gates_json in other_representatives:
+                circuit_gates = json.loads(gates_json)
+                
+                # Check if this circuit is equivalent to any of the unrolled circuits
+                for equiv_gates in equivalent_circuits:
+                    if self._gates_are_equivalent(circuit_gates, equiv_gates):
+                        # Convert this representative to an equivalent
+                        self.convert_circuit_to_equivalent(circuit_id, primary_representative_id)
+                        
+                        # Remove from representatives table
+                        conn.execute("DELETE FROM representatives WHERE id = ?", (rep_id,))
+                        
+                        logger.info(f"Converted representative {circuit_id} to equivalent of {primary_representative_id}")
+                        converted_count += 1
+                        break
+            
+            conn.commit()
+        
+        return converted_count
+    
+    def _gates_are_equivalent(self, gates1: List[Tuple], gates2: List[Tuple]) -> bool:
+        """Check if two gate sequences are exactly equivalent."""
+        if len(gates1) != len(gates2):
+            return False
+        return gates1 == gates2
+    
+    def get_true_representatives_for_dim_group(self, dim_group_id: int) -> List[RepresentativeRecord]:
+        """
+        Get only true representatives (circuits where representative_id == circuit_id).
+        This filters out circuits that have been converted to equivalents.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT r.id, r.dim_group_id, r.circuit_id, r.gate_composition, r.is_primary, r.fully_unrolled
+                FROM representatives r
+                JOIN circuits c ON r.circuit_id = c.id
+                WHERE r.dim_group_id = ? AND c.representative_id = c.id
+                ORDER BY r.gate_composition, r.circuit_id
+            """, (dim_group_id,))
+            
+            return [
+                RepresentativeRecord(
+                    id=row[0],
+                    dim_group_id=row[1],
+                    circuit_id=row[2],
+                    gate_composition=tuple(json.loads(row[3])),
+                    is_primary=bool(row[4]),
+                    fully_unrolled=bool(row[5])
+                )
+                for row in cursor.fetchall()
+            ]
+    
+    def mark_representative_fully_unrolled(self, representative_id: int):
+        """Mark a specific representative as fully unrolled."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                UPDATE representatives SET fully_unrolled = TRUE
+                WHERE id = ?
+            """, (representative_id,))
+            conn.commit()
+
     def get_all_dim_groups(self) -> List[DimGroupRecord]:
         """Get all dimension groups."""
         with sqlite3.connect(self.db_path) as conn:
@@ -842,4 +1217,94 @@ class CircuitDatabase:
                 json.dumps(metrics),
                 simplification_type
             ))
-            return cursor.lastrowid 
+            return cursor.lastrowid
+
+    def delete_circuit(self, circuit_id: int) -> bool:
+        """Delete a circuit and its representative entry if it exists."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Delete from representatives table first (if exists)
+                conn.execute("DELETE FROM representatives WHERE circuit_id = ?", (circuit_id,))
+                
+                # Delete from circuits table
+                cursor = conn.execute("DELETE FROM circuits WHERE id = ?", (circuit_id,))
+                
+                # Return True if a circuit was actually deleted
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to delete circuit {circuit_id}: {e}")
+            return False 
+    
+    def fix_circuit_dimension_group(self, circuit_id: int) -> bool:
+        """Fix a circuit that's in the wrong dimension group."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # Get the circuit details
+                cursor = conn.execute("""
+                    SELECT width, gate_count, gates 
+                    FROM circuits 
+                    WHERE id = ?
+                """, (circuit_id,))
+                
+                result = cursor.fetchone()
+                if not result:
+                    logger.error(f"Circuit {circuit_id} not found")
+                    return False
+                
+                width, stored_gate_count, gates_json = result
+                gates = json.loads(gates_json)
+                actual_gate_count = len(gates)
+                
+                # Find or create the correct dimension group
+                correct_dg = self.get_dim_group(width, actual_gate_count)
+                if not correct_dg:
+                    # Create new dimension group
+                    new_dg = DimGroupRecord(
+                        id=None, 
+                        width=width, 
+                        gate_count=actual_gate_count, 
+                        circuit_count=0, 
+                        is_processed=False
+                    )
+                    correct_dg_id = self.store_dim_group(new_dg)
+                else:
+                    correct_dg_id = correct_dg.id
+                
+                # Get the old dimension group ID
+                old_cursor = conn.execute("SELECT dim_group_id FROM dim_group_circuits WHERE circuit_id = ?", (circuit_id,))
+                old_result = old_cursor.fetchone()
+                old_dg_id = old_result[0] if old_result else None
+                
+                # Update circuit's gate count if needed
+                if stored_gate_count != actual_gate_count:
+                    conn.execute("""
+                        UPDATE circuits 
+                        SET gate_count = ? 
+                        WHERE id = ?
+                    """, (actual_gate_count, circuit_id))
+                
+                # Remove from old dimension group
+                if old_dg_id:
+                    conn.execute("DELETE FROM dim_group_circuits WHERE dim_group_id = ? AND circuit_id = ?", 
+                               (old_dg_id, circuit_id))
+                
+                # Add to correct dimension group
+                conn.execute("""
+                    INSERT OR IGNORE INTO dim_group_circuits (dim_group_id, circuit_id) 
+                    VALUES (?, ?)
+                """, (correct_dg_id, circuit_id))
+                
+                # Update representatives table
+                conn.execute("""
+                    UPDATE representatives 
+                    SET dim_group_id = ? 
+                    WHERE circuit_id = ?
+                """, (correct_dg_id, circuit_id))
+                
+                conn.commit()
+                logger.info(f"✅ Fixed circuit {circuit_id}: moved from dim group {old_dg_id} to {correct_dg_id}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"Failed to fix circuit {circuit_id} dimension group: {e}")
+            return False

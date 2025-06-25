@@ -4,11 +4,11 @@ Generates equivalent circuits from representative circuits using various transfo
 """
 
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
-from itertools import permutations
+
 from sat_revsynth.circuit.circuit import Circuit
-from .database import CircuitDatabase, CircuitRecord, EquivalentRecord, RepresentativeRecord
+from .database import CircuitDatabase, CircuitRecord, RepresentativeRecord
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ class CircuitUnroller:
         
         Args:
             dim_group_id: ID of the dimension group to unroll
-            unroll_types: List of unroll types to apply (swap, rotation, permutation, etc.)
+            unroll_types: List of unroll types to apply (e.g., 'sat_revsynth_unroll')
             
         Returns:
             UnrollResult with generation statistics
@@ -57,252 +57,197 @@ class CircuitUnroller:
         
         logger.info(f"Unrolling dimension group {dim_group_id}")
         
-        # Get dimension group info
         dim_group = self.database.get_dim_group_by_id(dim_group_id)
         if not dim_group:
-            return UnrollResult(
-                success=False,
-                error_message=f"Dimension group {dim_group_id} not found"
-            )
+            return UnrollResult(success=False, error_message=f"Dimension group {dim_group_id} not found")
         
-        # Get all representatives for this dimension group
         representatives = self.database.get_representatives_for_dim_group(dim_group_id)
         if not representatives:
-            return UnrollResult(
-                success=False,
-                error_message=f"No representatives found for dimension group {dim_group_id}"
-            )
+            return UnrollResult(success=False, error_message=f"No representatives for group {dim_group_id}")
         
-        # Default unroll types
         if unroll_types is None:
-            unroll_types = ['swap', 'rotation', 'permutation', 'reverse']
+            unroll_types = ['sat_revsynth_unroll']
         
         total_new_circuits = 0
         unroll_type_counts = {ut: 0 for ut in unroll_types}
         
-        # Unroll each representative
         for rep in representatives:
-            logger.info(f"Unrolling representative {rep.id} with composition {rep.gate_composition}")
-            
-            # Get the representative circuit
             circuit_record = self.database.get_circuit(rep.circuit_id)
             if not circuit_record:
-                logger.warning(f"Circuit {rep.circuit_id} not found for representative {rep.id}")
+                logger.warning(f"Circuit {rep.circuit_id} for representative {rep.id} not found")
                 continue
             
-            # Convert to Circuit object
-            circuit = self._record_to_circuit(circuit_record)
-            
-            # Perform unrolling
-            rep_result = self._perform_unrolling(circuit, rep, unroll_types)
-            
-            if rep_result.success:
-                total_new_circuits += rep_result.new_circuits
-                if rep_result.unroll_types:
-                    for ut, count in rep_result.unroll_types.items():
+            try:
+                circuit = self._record_to_circuit(circuit_record)
+                rep_result = self._perform_unrolling(circuit, rep, unroll_types)
+                
+                if rep_result.success:
+                    total_new_circuits += rep_result.new_circuits
+                    for ut, count in (rep_result.unroll_types or {}).items():
                         unroll_type_counts[ut] += count
-            else:
-                logger.warning(f"Failed to unroll representative {rep.id}: {rep_result.error_message}")
-        
-        # Mark dimension group as processed
+                else:
+                    logger.warning(f"Failed to unroll representative {rep.id}: {rep_result.error_message}")
+            except Exception as e:
+                logger.error(f"Critical failure processing representative {rep.id}: {e}")
+
         self.database.mark_dim_group_processed(dim_group_id)
         
-        # Update stats
-        self.unroll_count += 1
+        # Final stats update
         unroll_time = time.time() - start_time
-        self.total_unroll_time += unroll_time
-        
-        # Get total equivalents count
-        total_equivalents = len(self.database.get_all_equivalents_for_dim_group(dim_group_id))
-        
-        # Update unroll stats
-        self.unroll_stats['total_unrolled'] += 1
-        self.unroll_stats['largest_group'] = max(self.unroll_stats['largest_group'], total_equivalents)
-        if self.unroll_stats['smallest_group'] == float('inf'):
-            self.unroll_stats['smallest_group'] = total_equivalents
-        else:
-            self.unroll_stats['smallest_group'] = min(self.unroll_stats['smallest_group'], total_equivalents)
-        
-        self.unroll_stats['average_equivalents_per_group'] = (
-            (self.unroll_stats['average_equivalents_per_group'] * (self.unroll_stats['total_unrolled'] - 1) + total_equivalents) /
-            self.unroll_stats['total_unrolled']
-        )
-        
-        logger.info(f"Unrolled dimension group {dim_group_id}: {total_new_circuits} new circuits, {total_equivalents} total equivalents")
+        logger.info(f"Finished unrolling group {dim_group_id} in {unroll_time:.2f}s, generated {total_new_circuits} circuits.")
         
         return UnrollResult(
             success=True,
             dim_group_id=dim_group_id,
-            total_equivalents=total_equivalents,
+            total_equivalents=self.database.get_equivalent_count_for_dim_group(dim_group_id),
             new_circuits=total_new_circuits,
-            unroll_types=unroll_type_counts,
-            metrics={
-                'unroll_time': unroll_time,
-                'representatives_processed': len(representatives),
-                'unroll_types_used': unroll_types
-            }
+            unroll_types=unroll_type_counts
         )
     
     def _perform_unrolling(self, circuit: Circuit, representative: RepresentativeRecord, 
                           unroll_types: List[str]) -> UnrollResult:
-        """Perform unrolling operations on a single representative circuit."""
-        try:
-            all_equivalents = []
-            unroll_type_counts = {ut: 0 for ut in unroll_types}
-            
-            # Apply each unroll type
-            for unroll_type in unroll_types:
-                if len(all_equivalents) >= self.max_equivalents:
-                    break
-                
-                if unroll_type == 'swap':
-                    equivalents = self._swap_unroll(circuit)
-                elif unroll_type == 'rotation':
-                    equivalents = self._rotation_unroll(circuit)
-                elif unroll_type == 'permutation':
-                    equivalents = self._permutation_unroll(circuit)
-                elif unroll_type == 'reverse':
-                    equivalents = self._reverse_unroll(circuit)
-                elif unroll_type == 'local_unroll':
-                    equivalents = self._local_unroll(circuit)
-                elif unroll_type == 'full_unroll':
-                    equivalents = self._full_unroll(circuit)
-                else:
-                    logger.warning(f"Unknown unroll type: {unroll_type}")
-                    continue
-                
-                # Store unique equivalents
-                for equiv_circuit in equivalents:
-                    if len(all_equivalents) >= self.max_equivalents:
-                        break
-                    
-                    # Store the equivalent circuit
-                    equiv_record = CircuitRecord(
-                        id=None,
-                        width=equiv_circuit.width(),
-                        gate_count=len(equiv_circuit.gates()),
-                        gates=equiv_circuit.gates(),
-                        permutation=list(range(equiv_circuit.width()))  # Simplified
-                    )
-                    
-                    equiv_circuit_id = self.database.store_circuit(equiv_record)
-                    
-                    # Store the equivalent relationship
-                    equiv_relation = EquivalentRecord(
-                        id=None,
-                        circuit_id=equiv_circuit_id,
-                        representative_id=representative.id,
-                        unroll_type=unroll_type,
-                        unroll_params={'method': unroll_type}
-                    )
-                    
-                    self.database.store_equivalent(equiv_relation)
-                    
-                    all_equivalents.append(equiv_circuit)
-                    unroll_type_counts[unroll_type] += 1
-            
-            return UnrollResult(
-                success=True,
-                new_circuits=len(all_equivalents),
-                unroll_types=unroll_type_counts
-            )
-            
-        except Exception as e:
-            logger.error(f"Unrolling failed for representative {representative.id}: {e}")
-            return UnrollResult(
-                success=False,
-                error_message=str(e)
-            )
-    
-    def _swap_unroll(self, circuit: Circuit) -> List[Circuit]:
-        """Generate equivalents using gate swapping."""
-        try:
-            # Use the swap space exploration from sat_revsynth
-            swap_space = circuit.swap_space_dfs()
-            return swap_space[:min(len(swap_space), 100)]  # Limit to prevent explosion
-        except Exception as e:
-            logger.warning(f"Swap unroll failed: {e}")
-            return []
-    
-    def _rotation_unroll(self, circuit: Circuit) -> List[Circuit]:
-        """Generate equivalents using circuit rotations."""
-        try:
-            rotations = circuit.rotations()
-            return rotations[:min(len(rotations), 50)]
-        except Exception as e:
-            logger.warning(f"Rotation unroll failed: {e}")
-            return []
-    
-    def _permutation_unroll(self, circuit: Circuit) -> List[Circuit]:
-        """Generate equivalents using qubit permutations."""
-        try:
-            permutations_list = circuit.permutations()
-            return permutations_list[:min(len(permutations_list), 50)]
-        except Exception as e:
-            logger.warning(f"Permutation unroll failed: {e}")
-            return []
-    
-    def _reverse_unroll(self, circuit: Circuit) -> List[Circuit]:
-        """Generate equivalents using circuit reversal."""
-        try:
-            reversed_circuit = circuit.reverse()
-            return [reversed_circuit]
-        except Exception as e:
-            logger.warning(f"Reverse unroll failed: {e}")
-            return []
-    
-    def _local_unroll(self, circuit: Circuit) -> List[Circuit]:
-        """Generate equivalents using local transformations."""
-        try:
-            # This would implement local gate optimizations
-            # For now, return empty list as placeholder
-            return []
-        except Exception as e:
-            logger.warning(f"Local unroll failed: {e}")
-            return []
-    
-    def _full_unroll(self, circuit: Circuit) -> List[Circuit]:
-        """Generate the complete unroll space."""
-        try:
-            # Use the full unroll method from sat_revsynth
-            full_unroll = circuit.unroll()
-            return full_unroll[:min(len(full_unroll), 200)]  # Limit to prevent explosion
-        except Exception as e:
-            logger.warning(f"Full unroll failed: {e}")
-            return []
-    
+        """Perform unrolling on a single representative using specified methods."""
+        all_equivalents = []
+        unroll_type_counts = {ut: 0 for ut in unroll_types}
+
+        if 'sat_revsynth_unroll' in unroll_types:
+            all_equivalents = circuit.unroll([])
+            unroll_type_counts['sat_revsynth_unroll'] = len(all_equivalents)
+        
+        if len(all_equivalents) > self.max_equivalents:
+            all_equivalents = all_equivalents[:self.max_equivalents]
+        
+        stored_count = 0
+        for equiv_circuit in all_equivalents:
+            try:
+                circuit_id = self.database.store_equivalent_circuit(
+                    original_circuit_id=representative.circuit_id,
+                    gates=equiv_circuit.gates(),
+                    width=equiv_circuit.width(),
+                    permutation=list(range(equiv_circuit.width())),
+                    unroll_type='sat_revsynth_unroll'
+                )
+                if circuit_id > 0:
+                    stored_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to store equivalent for rep {representative.id}: {e}")
+        
+        logger.info(f"Stored {stored_count} new equivalents for representative {representative.id}")
+        return UnrollResult(success=True, new_circuits=stored_count, unroll_types=unroll_type_counts)
+
     def _record_to_circuit(self, record: CircuitRecord) -> Circuit:
-        """Convert a CircuitRecord to a Circuit object."""
-        circuit = Circuit(record.width)
-        
-        for gate in record.gates:
-            controls, target = gate
-            if len(controls) == 0:
-                circuit = circuit.x(target)
-            elif len(controls) == 1:
-                circuit = circuit.cx(controls[0], target)
-            elif len(controls) == 2:
-                circuit = circuit.mcx(controls, target)
-            else:
-                # Handle multi-controlled gates
-                circuit = circuit.mcx(controls, target)
-        
-        return circuit
-    
-    def unroll_all_dimension_groups(self, unroll_types: Optional[List[str]] = None) -> Dict[int, UnrollResult]:
-        """Unroll all unprocessed dimension groups."""
-        unprocessed_groups = self.database.get_unprocessed_dim_groups()
-        results = {}
-        
-        logger.info(f"Unrolling {len(unprocessed_groups)} dimension groups")
-        
-        for dim_group in unprocessed_groups:
-            logger.info(f"Processing dimension group {dim_group.id}: ({dim_group.width}, {dim_group.gate_count})")
-            result = self.unroll_dimension_group(dim_group.id, unroll_types)
-            results[dim_group.id] = result
-        
-        return results
+        """Converts a CircuitRecord from the database to a sat_revsynth Circuit object."""
+        try:
+            if not isinstance(record.gates, list):
+                raise TypeError(f"Malformed gates for circuit {record.id}: not a list.")
+
+            circuit_gates = []
+            for gate in record.gates:
+                if isinstance(gate, (list, tuple)) and len(gate) == 2 and isinstance(gate[0], (list, tuple)) and isinstance(gate[1], int):
+                    controls, target = gate
+                    circuit_gates.append((list(controls), target))
+                else:
+                    raise TypeError(f"Malformed gate data in DB for circuit {record.id}: {gate}")
+            
+            # Use the constructor of the Circuit class
+            new_circuit = Circuit(record.width)
+            new_circuit._gates = circuit_gates
+            new_circuit._tt = None # Invalidate truth table
+            return new_circuit
+
+        except Exception as e:
+            logger.error(f"Failed to convert CircuitRecord {record.id} to Circuit object: {e}")
+            raise
+
+    def unroll_circuit(self, circuit_record: CircuitRecord, max_equivalents: int = 100) -> Dict[str, Any]:
+        """
+        Unroll a single circuit to generate all equivalent circuits.
+        This uses the comprehensive unroll method from sat_revsynth which includes:
+        - Swap space exploration (BFS)
+        - Rotations
+        - Reverse
+        - Permutations
+        """
+        try:
+            # Convert to sat_revsynth Circuit
+            circuit = self._record_to_circuit(circuit_record)
+            
+            logger.info(f"Starting comprehensive unroll for circuit {circuit_record.id}")
+            
+            # Use the comprehensive unroll from sat_revsynth
+            # This includes swap_space_bfs + rotations + reverse + permutations
+            equivalent_circuits = circuit.unroll()
+            
+            logger.info(f"Unroll generated {len(equivalent_circuits)} total equivalents")
+            
+            # Check if we hit the limit (meaning we might not have ALL equivalents)
+            hit_limit = len(equivalent_circuits) >= max_equivalents
+            
+            # Limit the number of equivalents if specified
+            if hit_limit:
+                logger.info(f"Limiting equivalents from {len(equivalent_circuits)} to {max_equivalents}")
+                equivalent_circuits = equivalent_circuits[:max_equivalents]
+            
+            # Convert circuits back to gate lists
+            equivalents_as_gates = []
+            for equiv_circuit in equivalent_circuits:
+                gates = equiv_circuit.gates()
+                if gates != circuit_record.gates:  # Don't include the original circuit
+                    equivalents_as_gates.append(gates)
+            
+            result = {
+                'success': True,
+                'equivalents': equivalents_as_gates,
+                'total_generated': len(equivalent_circuits),
+                'unique_equivalents': len(equivalents_as_gates),
+                'original_excluded': len(equivalent_circuits) - len(equivalents_as_gates),
+                'fully_unrolled': not hit_limit,  # True if we didn't hit the limit
+                'unroll_types': {
+                    'comprehensive': len(equivalent_circuits)
+                }
+            }
+            
+            # Clean up other representatives with the same composition
+            gate_composition = self.database._calculate_gate_composition(circuit_record.gates)
+            converted_count = self.database.cleanup_representatives_after_unroll(
+                circuit_record.dim_group_id, 
+                gate_composition, 
+                circuit_record.id,
+                equivalents_as_gates
+            )
+            
+            result['representatives_converted'] = converted_count
+            
+            # If we fully unrolled without hitting limits, mark this representative as fully unrolled
+            if not hit_limit:
+                # Get the representative record for this circuit
+                representatives = self.database.get_representatives_by_composition(
+                    circuit_record.dim_group_id, gate_composition
+                )
+                rep_for_circuit = next(
+                    (rep for rep in representatives if rep.circuit_id == circuit_record.id), 
+                    None
+                )
+                if rep_for_circuit:
+                    self.database.mark_representative_fully_unrolled(rep_for_circuit.id)
+                    result['representative_marked_fully_unrolled'] = True
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Unroll failed for circuit {circuit_record.id}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'equivalents': []
+            }
     
     def get_unroll_stats(self) -> Dict[str, Any]:
         """Get statistics about unrolling operations."""
-        return self.unroll_stats.copy() 
+        return {
+            "total_unroll_time": self.total_unroll_time,
+            "circuits_unrolled": self.circuits_unrolled,
+            "total_equivalents_generated": self.total_equivalents_generated,
+            "average_unroll_time": self.total_unroll_time / max(1, self.circuits_unrolled),
+            "average_equivalents_per_circuit": self.total_equivalents_generated / max(1, self.circuits_unrolled)
+        } 

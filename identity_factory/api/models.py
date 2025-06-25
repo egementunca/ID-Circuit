@@ -42,7 +42,7 @@ class JobStatus(str, Enum):
 class CircuitRequest(BaseModel):
     """Request model for circuit generation."""
     width: int = Field(..., ge=1, le=10, description="Number of qubits")
-    length: int = Field(..., ge=1, le=50, description="Number of gates in forward circuit")
+    gate_count: int = Field(..., ge=1, le=50, description="Number of gates in forward circuit", alias="length")
     max_inverse_gates: Optional[int] = Field(40, ge=1, le=100, description="Maximum inverse gates")
     sequential: Optional[bool] = Field(True, description="Use sequential gate generation")
     enable_unrolling: Optional[bool] = Field(True, description="Enable unrolling step")
@@ -109,27 +109,44 @@ class CircuitResponse(BaseModel):
     permutation: List[int]
     complexity_walk: Optional[List[int]] = None
     circuit_hash: Optional[str] = None
+    is_representative: Optional[bool] = False
+    representative_id: Optional[int] = None
+    fully_unrolled: Optional[bool] = False
 
 class DimGroupResponse(BaseModel):
     """Response model for dimension group data."""
     id: int
     width: int
     length: int
-    seed_circuit_id: Optional[int]
-    representative_circuit_id: Optional[int]
+    circuit_count: int
     total_equivalents: int
     is_processed: bool
 
 class RepresentativeCircuitResponse(BaseModel):
-    """Response model for a representative circuit within a dimension group."""
+    """Response model for representative circuit data."""
     circuit: CircuitResponse
     gate_composition: Tuple[int, int, int]
     composition_count: int
+    total_equivalents: int
+    fully_unrolled: bool = False
 
 class CircuitASCIIRepresentation(BaseModel):
     """Response model for a circuit's ASCII diagram."""
     circuit_id: int
     diagram: str
+
+class EnhancedCircuitDetailsResponse(BaseModel):
+    """Response model for enhanced circuit details including truth table and Hamming distance."""
+    circuit_id: int
+    width: int
+    length: int
+    gates: List[Tuple]
+    permutation: List[int]
+    complexity_walk: List[int]
+    truth_table: List[List[int]]
+    ascii_diagram: str
+    hamming_distances: List[int]
+    gate_descriptions: List[str]
 
 class CircuitEquivalentResponse(BaseModel):
     """Response model for circuit equivalent data."""

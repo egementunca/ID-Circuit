@@ -100,10 +100,7 @@ class MLFeatureExtractor:
             gate_count = len(gates)
             depth = self._calculate_depth(gates, width)
         
-        # Debug: check types
-        logger.info(f"ML Features Debug - gate_count: {gate_count} (type: {type(gate_count)})")
-        logger.info(f"ML Features Debug - width: {width} (type: {type(width)})")
-        logger.info(f"ML Features Debug - depth: {depth} (type: {type(depth)})")
+
         
         # Basic properties
         length = len(circuit)
@@ -348,22 +345,20 @@ class MLFeatureExtractor:
         return count
     
     def _compute_gate_repetition_ratio(self, gates: List[Tuple]) -> float:
-        """Compute the ratio of repeated gates."""
+        """Compute the ratio of unique gates to total gates."""
         if not gates:
             return 0.0
         
-        # Convert gates to tuples to make them hashable for Counter
-        gate_tuples = [tuple(gate) for gate in gates]
-        gate_counter = Counter(gate_tuples)
-        total_gates = len(gates)
-        unique_gates = len(gate_counter)
-        
-        # Ratio of repeated gates
-        repeated_gates = sum(count - 1 for count in gate_counter.values())
-        return repeated_gates / total_gates
+        # Convert controls to tuples to make gates hashable
+        try:
+            hashable_gates = set((tuple(controls), target) for controls, target in gates)
+            return len(hashable_gates) / len(gates)
+        except Exception:
+            # Fallback for malformed gates
+            return 1.0
     
     def _compute_control_target_overlap(self, gates: List[Tuple]) -> float:
-        """Compute the overlap between control and target qubits."""
+        """Compute the fraction of gates where the target is also a control qubit."""
         if not gates:
             return 0.0
         

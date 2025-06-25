@@ -110,10 +110,11 @@ class PostProcessor:
             circuit_record = CircuitRecord(
                 id=None,
                 width=reduced_circuit.width(),
-                length=len(reduced_circuit),
+                gate_count=len(reduced_circuit),
                 gates=gates,
                 permutation=list(range(1 << reduced_circuit.width())),
-                complexity_walk=None
+                complexity_walk=None,
+                dim_group_id=None  # Will be set by database if needed
             )
             
             simplified_circuit_id = self.db.store_circuit(circuit_record)

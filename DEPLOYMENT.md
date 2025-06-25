@@ -1,100 +1,187 @@
-# Deployment Guide
+# ID-Circuit Deployment Guide
 
-This guide explains how to properly deploy the Identity Circuit Factory to various cloud environments.
+This guide provides step-by-step instructions for deploying the ID-Circuit system in various environments.
 
-## 🏗️ Project Structure for Deployment
+## Prerequisites
 
-After cleanup, your repository should have this clean structure:
+-   Python 3.8 or higher
+-   SQLite3
+-   pip (Python package manager)
+-   Git (for cloning the repository)
 
-```
-ID-Circuit/
-├── identity_factory/          # Main application
-├── sat_revsynth/             # SAT synthesis library
-├── tests/                    # Test suite
-├── static/                   # Static files for web UI
-├── requirements.txt          # Python dependencies
-├── pyproject.toml           # Project configuration
-├── start_api.py             # API server entry point
-├── README.md                # Main documentation
-├── COMPONENTS.md            # Component documentation
-├── DEPLOYMENT.md            # This file
-└── .gitignore               # Git ignore rules
-```
+## Local Development Setup
 
-## 🔧 Pre-Deployment Setup
-
-### 1. Clean Installation
+### 1. Clone the Repository
 
 ```bash
-# Remove any existing installations
-pip uninstall -y identity-factory sat-revsynth
+git clone <repository-url>
+cd ID-Circuit
+```
 
-# Remove egg-info directories
-find . -name "*.egg-info" -type d -exec rm -rf {} +
+### 2. Create Virtual Environment
 
-# Clean virtual environment (if needed)
-rm -rf .venv
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```bash
+# Create virtual environment
+python -m venv venv
 
-# Fresh installation
+# Activate virtual environment
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows:
+venv\Scripts\activate
+```
+
+### 3. Install Dependencies
+
+```bash
 pip install -r requirements.txt
-pip install -e .
 ```
 
-### 2. Verify Installation
+### 4. Initialize Database
 
 ```bash
-# Run tests to ensure everything works
-pytest
-
-# Test CLI
-python -m identity_factory.cli --help
-
-# Test basic functionality
-python -m identity_factory.cli generate --width 3 --length 3
+# The database will be automatically created on first run
+python -m identity_factory
 ```
 
-## 🚀 Local Development Deployment
-
-### Basic Local Setup
+### 5. Start the Development Server
 
 ```bash
-# Install dependencies
+python start_api.py
+```
+
+The application will be available at:
+
+-   Web Interface: http://localhost:8000
+-   API Documentation: http://localhost:8000/docs
+-   API Base URL: http://localhost:8000/api/v1
+
+## Production Deployment
+
+### Option 1: Direct Deployment
+
+#### 1. Server Setup
+
+```bash
+# Install system dependencies
+sudo apt-get update
+sudo apt-get install python3 python3-pip python3-venv nginx sqlite3
+
+# Clone and setup application
+git clone <repository-url>
+cd ID-Circuit
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-pip install -e .
-
-# Start API server
-python start_api.py --host 0.0.0.0 --port 8000
 ```
 
-### Development with Auto-reload
+#### 2. Configure Application
+
+Create a configuration file `config.py`:
+
+```python
+import os
+
+class ProductionConfig:
+    # Database
+    DATABASE_PATH = "/var/lib/id-circuit/identity_circuits.db"
+
+    # Server
+    HOST = "0.0.0.0"
+    PORT = 8000
+    WORKERS = 4
+
+    # Security
+    SECRET_KEY = os.environ.get("SECRET_KEY", "your-secret-key-here")
+
+    # Logging
+    LOG_LEVEL = "INFO"
+    LOG_FILE = "/var/log/id-circuit/app.log"
+```
+
+#### 3. Setup Systemd Service
+
+Create `/etc/systemd/system/id-circuit.service`:
+
+```ini
+[Unit]
+Description=ID-Circuit API Server
+After=network.target
+
+[Service]
+Type=exec
+User=id-circuit
+Group=id-circuit
+WorkingDirectory=/opt/id-circuit
+Environment=PATH=/opt/id-circuit/venv/bin
+ExecStart=/opt/id-circuit/venv/bin/python start_api.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 4. Setup Nginx Reverse Proxy
+
+Create `/etc/nginx/sites-available/id-circuit`:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /static/ {
+        alias /opt/id-circuit/static/;
+    }
+}
+```
+
+Enable the site:
 
 ```bash
-# Install development dependencies
-pip install -r requirements.txt
-pip install -e .
-pip install uvicorn[standard] watchfiles
-
-# Start with auto-reload
-uvicorn identity_factory.api.server:app --reload --host 0.0.0.0 --port 8000
+sudo ln -s /etc/nginx/sites-available/id-circuit /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
 ```
 
-## ☁️ Cloud Deployment Options
+#### 5. Start Services
 
-### Option 1: Docker Deployment
+```bash
+# Create application user
+sudo useradd -r -s /bin/false id-circuit
 
-Create a `Dockerfile`:
+# Create directories
+sudo mkdir -p /opt/id-circuit /var/lib/id-circuit /var/log/id-circuit
+sudo chown -R id-circuit:id-circuit /opt/id-circuit /var/lib/id-circuit /var/log/id-circuit
+
+# Start service
+sudo systemctl enable id-circuit
+sudo systemctl start id-circuit
+```
+
+### Option 2: Docker Deployment
+
+#### 1. Create Dockerfile
+
+Create `Dockerfile`:
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.9-slim
 
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
@@ -104,9 +191,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Install the application
-RUN pip install -e .
-
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
@@ -114,13 +198,11 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Start the application
-CMD ["uvicorn", "identity_factory.api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Start application
+CMD ["python", "start_api.py"]
 ```
+
+#### 2. Create Docker Compose
 
 Create `docker-compose.yml`:
 
@@ -128,407 +210,264 @@ Create `docker-compose.yml`:
 version: "3.8"
 
 services:
-    identity-factory:
+    id-circuit:
         build: .
         ports:
             - "8000:8000"
         volumes:
             - ./data:/app/data
         environment:
-            - IDENTITY_FACTORY_DB_PATH=/app/data/identity_circuits.db
-            - IDENTITY_FACTORY_LOG_LEVEL=INFO
+            - DATABASE_PATH=/app/data/identity_circuits.db
         restart: unless-stopped
 
-    # Optional: Add Redis for job queue
-    redis:
-        image: redis:7-alpine
+    nginx:
+        image: nginx:alpine
         ports:
-            - "6379:6379"
+            - "80:80"
         volumes:
-            - redis_data:/data
+            - ./nginx.conf:/etc/nginx/nginx.conf
+        depends_on:
+            - id-circuit
         restart: unless-stopped
-
-volumes:
-    redis_data:
 ```
 
-Deploy with Docker:
+#### 3. Deploy with Docker
 
 ```bash
-# Build and start
+# Build and start services
 docker-compose up -d
 
-# View logs
-docker-compose logs -f
-
-# Stop
-docker-compose down
+# Check logs
+docker-compose logs -f id-circuit
 ```
 
-### Option 2: Kubernetes Deployment
+### Option 3: Cloud Deployment
 
-Create `k8s-deployment.yaml`:
+#### AWS EC2 Deployment
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-    name: identity-factory
-spec:
-    replicas: 2
-    selector:
-        matchLabels:
-            app: identity-factory
-    template:
-        metadata:
-            labels:
-                app: identity-factory
-        spec:
-            containers:
-                - name: identity-factory
-                  image: your-registry/identity-factory:latest
-                  ports:
-                      - containerPort: 8000
-                  env:
-                      - name: IDENTITY_FACTORY_DB_PATH
-                        value: "/app/data/identity_circuits.db"
-                      - name: IDENTITY_FACTORY_LOG_LEVEL
-                        value: "INFO"
-                  volumeMounts:
-                      - name: data-volume
-                        mountPath: /app/data
-                  livenessProbe:
-                      httpGet:
-                          path: /health
-                          port: 8000
-                      initialDelaySeconds: 30
-                      periodSeconds: 10
-                  readinessProbe:
-                      httpGet:
-                          path: /health
-                          port: 8000
-                      initialDelaySeconds: 5
-                      periodSeconds: 5
-            volumes:
-                - name: data-volume
-                  persistentVolumeClaim:
-                      claimName: identity-factory-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-    name: identity-factory-service
-spec:
-    selector:
-        app: identity-factory
-    ports:
-        - port: 80
-          targetPort: 8000
-    type: LoadBalancer
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-    name: identity-factory-pvc
-spec:
-    accessModes:
-        - ReadWriteOnce
-    resources:
-        requests:
-            storage: 10Gi
-```
+1. **Launch EC2 Instance**:
 
-### Option 3: Cloud Platform Deployment
+    - Use Ubuntu 20.04 LTS
+    - t3.medium or larger
+    - Configure security groups for ports 80, 443, 22
 
-#### AWS ECS/Fargate
+2. **Install Dependencies**:
 
-```bash
-# Build and push to ECR
-aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin your-account.dkr.ecr.us-west-2.amazonaws.com
-docker build -t identity-factory .
-docker tag identity-factory:latest your-account.dkr.ecr.us-west-2.amazonaws.com/identity-factory:latest
-docker push your-account.dkr.ecr.us-west-2.amazonaws.com/identity-factory:latest
+    ```bash
+    sudo apt-get update
+    sudo apt-get install python3 python3-pip python3-venv nginx sqlite3
+    ```
 
-# Deploy to ECS
-aws ecs create-cluster --cluster-name identity-factory-cluster
-aws ecs register-task-definition --cli-input-json file://task-definition.json
-aws ecs create-service --cluster identity-factory-cluster --service-name identity-factory-service --task-definition identity-factory:1 --desired-count 2
-```
+3. **Deploy Application**:
 
-#### Google Cloud Run
+    ```bash
+    git clone <repository-url>
+    cd ID-Circuit
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
 
-```bash
-# Build and deploy
-gcloud builds submit --tag gcr.io/your-project/identity-factory
-gcloud run deploy identity-factory \
-  --image gcr.io/your-project/identity-factory \
-  --platform managed \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --memory 2Gi \
-  --cpu 2
-```
+4. **Configure Nginx and Systemd** (as in Option 1)
 
-#### Azure Container Instances
+#### Google Cloud Platform
 
-```bash
-# Build and push to Azure Container Registry
-az acr build --registry your-registry --image identity-factory .
-az container create \
-  --resource-group your-rg \
-  --name identity-factory \
-  --image your-registry.azurecr.io/identity-factory:latest \
-  --ports 8000 \
-  --memory 2 \
-  --cpu 2
-```
+1. **Create Compute Engine Instance**:
 
-## ⚙️ Configuration Management
+    - Use Ubuntu 20.04 LTS
+    - e2-medium or larger
+    - Allow HTTP/HTTPS traffic
+
+2. **Deploy using startup script**:
+
+    ```bash
+    #!/bin/bash
+    apt-get update
+    apt-get install -y python3 python3-pip nginx sqlite3
+
+    git clone <repository-url>
+    cd ID-Circuit
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+
+    # Setup systemd service
+    # ... (same as Option 1)
+    ```
+
+## Configuration
 
 ### Environment Variables
 
-Create `.env` file for local development:
-
-```env
-# Database
-IDENTITY_FACTORY_DB_PATH=./data/identity_circuits.db
-
-# Logging
-IDENTITY_FACTORY_LOG_LEVEL=INFO
-
-# SAT Solver
-IDENTITY_FACTORY_SAT_SOLVER=minisat-gh
-
-# Features
-IDENTITY_FACTORY_ENABLE_POST_PROCESSING=true
-IDENTITY_FACTORY_ENABLE_ML_FEATURES=true
-IDENTITY_FACTORY_ENABLE_DEBRIS_ANALYSIS=true
-
-# Job Queue (optional)
-IDENTITY_FACTORY_REDIS_URL=redis://localhost:6379
-IDENTITY_FACTORY_ENABLE_JOB_QUEUE=false
-
-# API
-IDENTITY_FACTORY_API_HOST=0.0.0.0
-IDENTITY_FACTORY_API_PORT=8000
-```
-
-### Production Configuration
-
-For production, use environment variables or configuration management:
+Set these environment variables for production:
 
 ```bash
-# Set production environment variables
-export IDENTITY_FACTORY_DB_PATH=/app/data/identity_circuits.db
-export IDENTITY_FACTORY_LOG_LEVEL=WARNING
-export IDENTITY_FACTORY_ENABLE_JOB_QUEUE=true
-export IDENTITY_FACTORY_REDIS_URL=redis://redis-service:6379
+export SECRET_KEY="your-secret-key-here"
+export DATABASE_PATH="/var/lib/id-circuit/identity_circuits.db"
+export LOG_LEVEL="INFO"
+export MAX_EQUIVALENTS="10000"
+export ENABLE_POST_PROCESSING="true"
 ```
 
-## 📊 Monitoring and Logging
+### Database Configuration
+
+For production, consider using PostgreSQL instead of SQLite:
+
+1. Install PostgreSQL
+2. Create database and user
+3. Update database connection in `factory_manager.py`
+
+### Security Considerations
+
+1. **HTTPS**: Use Let's Encrypt or other SSL certificate
+2. **Firewall**: Configure firewall rules
+3. **Authentication**: Implement API authentication if needed
+4. **Rate Limiting**: Add rate limiting to prevent abuse
+
+## Monitoring and Logging
+
+### Log Configuration
+
+Configure logging in `factory_manager.py`:
+
+```python
+import logging
+from logging.handlers import RotatingFileHandler
+
+def setup_logging():
+    handler = RotatingFileHandler(
+        '/var/log/id-circuit/app.log',
+        maxBytes=10000000,  # 10MB
+        backupCount=5
+    )
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    handler.setFormatter(formatter)
+
+    logger = logging.getLogger()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+```
 
 ### Health Checks
 
-The API provides health check endpoints:
-
-```bash
-# Basic health check
-curl http://localhost:8000/health
-
-# Detailed health check
-curl http://localhost:8000/api/v1/health
-```
-
-### Logging Configuration
-
-Configure logging in your deployment:
+Add health check endpoint:
 
 ```python
-# In your deployment script
-import logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 ```
 
-### Metrics
+### Monitoring
 
-The API provides basic metrics:
+Consider using:
+
+-   **Prometheus** for metrics collection
+-   **Grafana** for visualization
+-   **Sentry** for error tracking
+
+## Backup and Recovery
+
+### Database Backup
 
 ```bash
-# Get factory statistics
-curl http://localhost:8000/api/v1/stats
-
-# Get detailed statistics
-curl http://localhost:8000/api/v1/stats/detailed
+# Create backup script
+#!/bin/bash
+BACKUP_DIR="/var/backups/id-circuit"
+DATE=$(date +%Y%m%d_%H%M%S)
+sqlite3 /var/lib/id-circuit/identity_circuits.db ".backup $BACKUP_DIR/backup_$DATE.db"
 ```
 
-## 🔒 Security Considerations
-
-### API Security
-
-```python
-# Add authentication to API
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer
-
-security = HTTPBearer()
-
-async def verify_token(token: str = Depends(security)):
-    # Implement your token verification logic
-    if not is_valid_token(token.credentials):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )
-    return token.credentials
-
-# Apply to endpoints
-@app.post("/api/v1/generate")
-async def generate_circuit(
-    request: CircuitRequest,
-    token: str = Depends(verify_token)
-):
-    # Your endpoint logic
-    pass
-```
-
-### Database Security
+### Application Backup
 
 ```bash
-# Use encrypted database
-export IDENTITY_FACTORY_DB_PATH=/app/data/encrypted_circuits.db
-export IDENTITY_FACTORY_DB_ENCRYPTION_KEY=your-secret-key
-
-# Use read-only database for certain operations
-export IDENTITY_FACTORY_DB_READ_ONLY=true
+# Backup application files
+tar -czf /var/backups/id-circuit/app_$(date +%Y%m%d).tar.gz /opt/id-circuit/
 ```
 
-## 🚀 Performance Optimization
+## Troubleshooting
+
+### Common Issues
+
+1. **Database Permission Errors**:
+
+    ```bash
+    sudo chown -R id-circuit:id-circuit /var/lib/id-circuit/
+    ```
+
+2. **Port Already in Use**:
+
+    ```bash
+    sudo netstat -tulpn | grep :8000
+    sudo kill -9 <PID>
+    ```
+
+3. **Memory Issues**:
+    - Reduce `max_equivalents` in configuration
+    - Monitor memory usage with `htop`
+
+### Log Analysis
+
+```bash
+# Check application logs
+sudo journalctl -u id-circuit -f
+
+# Check nginx logs
+sudo tail -f /var/log/nginx/access.log
+sudo tail -f /var/log/nginx/error.log
+```
+
+## Performance Tuning
 
 ### Database Optimization
 
 ```sql
 -- Add indexes for better performance
 CREATE INDEX idx_circuits_dim_group ON circuits(dim_group_id);
-CREATE INDEX idx_circuits_width_length ON circuits(width, length);
-CREATE INDEX idx_equivalents_circuit_id ON circuit_equivalents(circuit_id);
+CREATE INDEX idx_representatives_composition ON representatives(gate_composition);
 ```
 
-### Memory Optimization
+### Application Tuning
 
-```python
-# Configure memory limits
-config = FactoryConfig(
-    max_equivalents=5000,  # Limit memory usage
-    enable_parquet_storage=True,  # Use efficient storage
-    max_workers=2  # Limit concurrent operations
-)
-```
+1. **Worker Processes**: Adjust based on CPU cores
+2. **Memory Limits**: Set appropriate memory limits
+3. **Connection Pooling**: Configure database connection pooling
 
-### Caching
+## Updates and Maintenance
 
-```python
-# Add Redis caching
-import redis
-from functools import lru_cache
-
-redis_client = redis.Redis.from_url(os.getenv("REDIS_URL"))
-
-@lru_cache(maxsize=1000)
-def get_circuit_features(circuit_id: int):
-    # Cache circuit features
-    cache_key = f"circuit_features:{circuit_id}"
-    cached = redis_client.get(cache_key)
-    if cached:
-        return json.loads(cached)
-
-    # Compute features
-    features = compute_features(circuit_id)
-    redis_client.setex(cache_key, 3600, json.dumps(features))
-    return features
-```
-
-## 🔄 CI/CD Pipeline
-
-### GitHub Actions Example
-
-Create `.github/workflows/deploy.yml`:
-
-```yaml
-name: Deploy Identity Factory
-
-on:
-    push:
-        branches: [main]
-
-jobs:
-    test:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v3
-            - name: Set up Python
-              uses: actions/setup-python@v4
-              with:
-                  python-version: "3.11"
-            - name: Install dependencies
-              run: |
-                  pip install -r requirements.txt
-                  pip install -e .
-            - name: Run tests
-              run: pytest
-
-    build-and-deploy:
-        needs: test
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v3
-            - name: Build Docker image
-              run: docker build -t identity-factory .
-            - name: Deploy to cloud
-              run: |
-                  # Your deployment commands here
-                  echo "Deploying to production..."
-```
-
-## 📋 Deployment Checklist
-
--   [ ] Clean installation with `pip install -e .`
--   [ ] All tests pass (`pytest`)
--   [ ] Database schema is created
--   [ ] Environment variables are configured
--   [ ] Health checks are working
--   [ ] Logging is configured
--   [ ] Security measures are in place
--   [ ] Performance monitoring is set up
--   [ ] Backup strategy is implemented
--   [ ] Documentation is updated
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-1. **Import Errors**: Ensure `pip install -e .` was run
-2. **Database Errors**: Check database path and permissions
-3. **SAT Solver Issues**: Verify SAT solver is installed
-4. **Memory Issues**: Reduce `max_equivalents` in configuration
-5. **API Errors**: Check health endpoint and logs
-
-### Debug Commands
+### Application Updates
 
 ```bash
-# Check installation
-python -c "import identity_factory; print('Import successful')"
+# Stop service
+sudo systemctl stop id-circuit
 
-# Check database
-python -c "from identity_factory.database import CircuitDatabase; db = CircuitDatabase(); print('Database OK')"
+# Backup current version
+cp -r /opt/id-circuit /opt/id-circuit.backup
 
-# Check SAT solver
-python -c "from sat_revsynth.sat.solver import Solver; s = Solver('minisat-gh'); print('SAT solver OK')"
+# Update code
+cd /opt/id-circuit
+git pull origin main
 
-# Run with debug logging
-IDENTITY_FACTORY_LOG_LEVEL=DEBUG python start_api.py
+# Update dependencies
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Start service
+sudo systemctl start id-circuit
 ```
 
-This deployment guide should help you successfully deploy the Identity Circuit Factory to any cloud environment while maintaining clean, organized code and proper configuration management.
+### Database Maintenance
+
+```bash
+# Optimize database
+sqlite3 /var/lib/id-circuit/identity_circuits.db "VACUUM;"
+
+# Check database integrity
+sqlite3 /var/lib/id-circuit/identity_circuits.db "PRAGMA integrity_check;"
+```
+
+---
+
+This deployment guide covers the most common deployment scenarios. For specific requirements or custom configurations, refer to the component documentation in `COMPONENTS.md`.

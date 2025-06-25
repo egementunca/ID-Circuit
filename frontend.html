@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Identity Circuit Factory</title>
+    <title>Identity Circuit Factory - Seed Generator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -31,68 +32,74 @@
             padding: 20px;
             margin-bottom: 20px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
         }
 
         .header h1 {
             color: #4a5568;
-            text-align: center;
             font-size: 2.5em;
             margin-bottom: 10px;
         }
 
         .header p {
-            text-align: center;
             color: #718096;
             font-size: 1.1em;
         }
 
-        .tabs {
-            display: flex;
-            border-bottom: 1px solid #ccc;
-            margin-bottom: 1em;
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 20px;
+            height: calc(100vh - 200px);
         }
 
-        .tab {
-            padding: 0.5em 1.5em;
-            cursor: pointer;
-            border: none;
-            background: none;
-            outline: none;
-            font-size: 1em;
-            transition: background 0.2s;
+        .sidebar {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
         }
 
-        .tab.active {
-            border-bottom: 2px solid #007bff;
-            font-weight: bold;
-            background: #f0f0f0;
+        .content-area {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
         }
 
-        .tab-content {
-            display: none;
+        .form-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            background: #f7fafc;
         }
 
-        .tab-content.active {
-            display: block;
+        .form-section h3 {
+            color: #4a5568;
+            margin-bottom: 15px;
+            font-size: 1.2em;
         }
 
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 5px;
             font-weight: 600;
             color: #4a5568;
         }
 
         .form-group input, .form-group select {
             width: 100%;
-            padding: 12px;
+            padding: 10px;
             border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 16px;
+            border-radius: 6px;
+            font-size: 14px;
             transition: border-color 0.3s ease;
         }
 
@@ -105,10 +112,10 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
+            padding: 10px 20px;
+            border-radius: 6px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 14px;
             font-weight: 600;
             transition: all 0.3s ease;
             margin-right: 10px;
@@ -116,60 +123,18 @@
         }
 
         .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
         }
 
         .btn-secondary {
             background: linear-gradient(135deg, #718096 0%, #4a5568 100%);
         }
 
-        .btn-danger {
-            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+        .btn-small {
+            padding: 5px 10px;
+            font-size: 12px;
         }
-
-        .btn-success {
-            background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-
-        .card {
-            background: rgba(255, 255, 255, 0.9);
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-            transition: transform 0.3s ease;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-        }
-
-        .card h3 {
-            color: #4a5568;
-            margin-bottom: 15px;
-            font-size: 1.3em;
-        }
-
-        .status {
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 14px;
-            font-weight: 600;
-            text-align: center;
-            margin: 5px 0;
-        }
-
-        .status.pending { background: #fef5e7; color: #d69e2e; }
-        .status.running { background: #e6fffa; color: #319795; }
-        .status.completed { background: #f0fff4; color: #38a169; }
-        .status.failed { background: #fed7d7; color: #e53e3e; }
 
         .table {
             width: 100%;
@@ -178,19 +143,100 @@
         }
 
         .table th, .table td {
-            padding: 12px;
+            padding: 12px 8px;
             text-align: left;
             border-bottom: 1px solid #e2e8f0;
+            font-size: 14px;
         }
 
         .table th {
             background: #f7fafc;
             font-weight: 600;
             color: #4a5568;
+            position: sticky;
+            top: 0;
         }
 
-        .table tr:hover {
+        .table tbody tr:hover {
             background: #f7fafc;
+            cursor: pointer;
+        }
+
+        .table tbody tr.selected {
+            background: #e6fffa;
+            border-left: 4px solid #38b2ac;
+        }
+
+        .filter-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 8px;
+        }
+
+        .filter-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-success {
+            background: #10b981;
+            color: white;
+        }
+
+        .badge-pending {
+            background: #f59e0b;
+            color: white;
+        }
+        
+        .status-chip {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .chip-representative {
+            background-color: #48BB7820;
+            color: #48BB78;
+            border: 1px solid #48BB78;
+        }
+        
+        .chip-has-equivalents {
+            background-color: #38B2AC20;
+            color: #38B2AC;
+            border: 1px solid #38B2AC;
+        }
+
+        .chip-fully-unrolled {
+            background-color: #10B98120;
+            color: #059669;
+            border: 1px solid #10B981;
+        }
+
+        .status-processed {
+            background: #f0fff4;
+            color: #38a169;
+        }
+
+        .status-pending {
+            background: #fef5e7;
+            color: #d69e2e;
         }
 
         .loading {
@@ -215,111 +261,116 @@
             margin: 10px 0;
         }
 
-        .circuit-gates {
-            font-family: 'Courier New', monospace;
-            background: #f7fafc;
-            padding: 10px;
-            border-radius: 6px;
+        .breadcrumb {
+            margin-bottom: 20px;
             font-size: 14px;
-            max-height: 200px;
-            overflow-y: auto;
+            color: #718096;
         }
 
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
+        .breadcrumb a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        .circuit-diagram {
+            background: #1a202c;
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre;
+            overflow-x: auto;
             margin: 15px 0;
         }
 
-        .metric {
-            text-align: center;
-            padding: 15px;
-            background: #f7fafc;
-            border-radius: 8px;
+        .gate-composition {
+            display: inline-flex;
+            gap: 10px;
+            font-size: 12px;
+            color: #718096;
         }
 
-        .metric-value {
-            font-size: 1.5em;
+        .gate-composition span {
+            background: #f7fafc;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: #f7fafc;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
             font-weight: bold;
             color: #667eea;
+            margin-bottom: 5px;
         }
 
-        .metric-label {
-            font-size: 0.9em;
+        .stat-label {
+            font-size: 12px;
             color: #718096;
-            margin-top: 5px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
-        .search-box {
-            margin-bottom: 20px;
+        /* Summary row in table */
+        .summary-row {
+            background: #f8f9fa !important;
+            border-top: 2px solid #dee2e6;
+            font-weight: 600;
         }
 
-        .search-box input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 16px;
-        }
-
-        .breadcrumb {
-            display: flex;
-            align-items: center;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-
-        .breadcrumb span {
-            color: #718096;
-            cursor: pointer;
-        }
-
-        .breadcrumb span:hover {
-            color: #667eea;
-        }
-
-        .breadcrumb .separator {
-            margin: 0 10px;
-            color: #cbd5e0;
-        }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 10px;
-            }
-            
-            .tabs {
-                flex-direction: column;
-            }
-            
-            .grid {
-                grid-template-columns: 1fr;
-            }
+        .summary-row td {
+            padding: 12px 8px !important;
+            color: #495057;
         }
 
         /* Modal styles */
         .modal {
-            display: none; 
-            position: fixed; 
+            display: none;
+            position: fixed;
             z-index: 1000;
             left: 0;
             top: 0;
             width: 100%;
             height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.6);
+            background-color: rgba(0,0,0,0.5);
         }
 
         .modal-content {
-            background-color: #fefefe;
-            margin: 10% auto;
+            background: white;
+            margin: 5% auto;
             padding: 20px;
-            border: 1px solid #888;
-            width: 80%;
-            max-width: 700px;
             border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 20px;
         }
 
         .close {
@@ -327,22 +378,193 @@
             float: right;
             font-size: 28px;
             font-weight: bold;
-        }
-
-        .close:hover,
-        .close:focus {
-            color: black;
-            text-decoration: none;
             cursor: pointer;
         }
 
-        #circuit-diagram-content {
-            font-family: 'Courier New', Courier, monospace;
-            background-color: #f4f4f4;
-            padding: 1em;
-            border-radius: 5px;
-            white-space: pre;
+        .close:hover {
+            color: #000;
+        }
+
+        /* Batch unroll button styling */
+        .btn-danger {
+            background-color: #DC2626;
+            color: white;
+            border: 1px solid #DC2626;
+        }
+
+        .btn-danger:hover {
+            background-color: #B91C1C;
+            border-color: #B91C1C;
+        }
+
+        .btn-danger:disabled {
+            background-color: #FCA5A5;
+            border-color: #FCA5A5;
+            cursor: not-allowed;
+        }
+
+        /* Warning message styling */
+        .warning-message {
+            background: #FEF3C7;
+            color: #92400E;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #F59E0B;
+            margin: 10px 0;
+        }
+
+        /* Progress indicator */
+        .progress-indicator {
+            background: #EBF4FF;
+            color: #2563EB;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #3B82F6;
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .progress-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #93C5FD;
+            border-top: 2px solid #2563EB;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Enhanced circuit details styles */
+        .circuit-details-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .circuit-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .circuit-section h4 {
+            margin: 0 0 15px 0;
+            color: #4a5568;
+            font-size: 1.1em;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 8px;
+        }
+
+        .circuit-diagram {
+            font-family: 'Courier New', monospace;
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
             overflow-x: auto;
+            white-space: pre;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .truth-table {
+            max-height: 400px;
+            overflow-y: auto;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .truth-table table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .truth-table th {
+            background: #667eea;
+            color: white;
+            padding: 8px 4px;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .truth-table td {
+            padding: 6px 4px;
+            text-align: center;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .truth-table tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+
+        .input-bits {
+            background: #e6f3ff !important;
+        }
+
+        .output-bits {
+            background: #f0fff0 !important;
+        }
+
+        .hamming-chart-container {
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            height: 300px;
+        }
+
+        .gate-list {
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .gate-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #f0f0f0;
+            font-size: 13px;
+        }
+
+        .gate-item:last-child {
+            border-bottom: none;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 1fr;
+            }
+            
+            .filter-row {
+                grid-template-columns: 1fr;
+            }
+
+            .circuit-details-container {
+                grid-template-columns: 1fr;
+            }
+
+            .modal-content {
+                margin: 10px;
+                max-width: none !important;
+                width: calc(100% - 20px) !important;
+                height: calc(100vh - 20px);
+                overflow-y: auto;
+            }
         }
     </style>
 </head>
@@ -350,174 +572,100 @@
     <div class="container">
         <div class="header">
             <h1>🔬 Identity Circuit Factory</h1>
-            <p>Advanced quantum circuit generation, analysis, and optimization</p>
+            <p>Seed Generator & Database Explorer</p>
         </div>
 
-        <div class="tabs">
-            <div class="tab active" onclick="showTab('jobs')">🚀 Job Manager</div>
-            <div class="tab" onclick="showTab('database')">🗄️ Database</div>
-            <div class="tab" onclick="showTab('analysis')">📊 Analysis</div>
-            <div class="tab" onclick="showTab('settings')">⚙️ Settings</div>
-            <div class="tab" onclick="showTab('logs')">Logs</div>
-        </div>
-
-        <div id="jobs" class="tab-content active">
-            <h2>Job Management</h2>
-            
-            <div class="grid">
-                <div class="card">
-                    <h3>Create New Job</h3>
+        <div class="main-content">
+            <!-- Sidebar with seed generation controls -->
+            <div class="sidebar">
+                <div class="form-section">
+                    <h3>🌱 Generate New Seed</h3>
                     <div class="form-group">
-                        <label for="jobType">Job Type</label>
-                        <select id="jobType" onchange="updateJobForm()">
-                            <option value="seed_generation">Seed Generation</option>
-                            <option value="unrolling">Unrolling</option>
-                            <option value="post_processing">Post-Processing</option>
-                            <option value="debris_analysis">Debris Analysis</option>
+                        <label for="genWidth">Width (Qubits)</label>
+                        <input type="number" id="genWidth" value="3" min="1" max="10">
+                    </div>
+                    <div class="form-group">
+                        <label for="genLength">Length (Gates)</label>
+                        <input type="number" id="genLength" value="5" min="1" max="50">
+                    </div>
+                    <div class="form-group">
+                        <label for="maxInverse">Max Inverse Gates</label>
+                        <input type="number" id="maxInverse" value="40" min="1" max="100">
+                    </div>
+                    <div class="form-group">
+                        <label for="sequential">Generation Mode</label>
+                        <select id="sequential">
+                            <option value="false">Random</option>
+                            <option value="true">Sequential</option>
                         </select>
                     </div>
-
-                    <div id="job-form-fields">
-                        <!-- Fields for Seed Generation -->
-                        <div class="form-group job-form-field" data-job-type="seed_generation">
-                            <label for="width">Width (Qubits)</label>
-                            <input type="number" id="width" value="3">
-                        </div>
-                        <div class="form-group job-form-field" data-job-type="seed_generation">
-                            <label for="length">Length (Gates)</label>
-                            <input type="number" id="length" value="5">
-                        </div>
-                        <div class="form-group job-form-field" data-job-type="seed_generation">
-                            <label for="maxInverseGates">Max Inverse Gates</label>
-                            <input type="number" id="maxInverseGates" value="40">
-                        </div>
-
-                        <!-- Fields for Unrolling, Post-Processing, and Debris Analysis -->
-                        <div class="form-group job-form-field" data-job-type="unrolling post_processing debris_analysis" style="display: none;">
-                            <label for="dimGroupId">Dimension Group ID</label>
-                            <input type="number" id="dimGroupId" placeholder="Enter Dimension Group ID">
-                        </div>
-
-                        <!-- Fields for Debris Analysis -->
-                        <div class="form-group job-form-field" data-job-type="debris_analysis" style="display: none;">
-                            <label for="circuitId">Circuit ID</label>
-                            <input type="number" id="circuitId" placeholder="Enter Circuit ID to analyze">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="useJobQueue">Execution Mode</label>
-                        <select id="useJobQueue">
-                            <option value="false">Run Immediately</option>
-                            <option value="true">Add to Job Queue</option>
-                        </select>
-                    </div>
-                    <button class="btn" onclick="createJob()">Create Job</button>
-                    <button class="btn btn-secondary" onclick="loadJobs()">Refresh Jobs</button>
+                    <button class="btn" onclick="generateSeed()">Generate Seed</button>
+                    <div id="generateStatus"></div>
                 </div>
 
-                <div class="card">
-                    <h3>Job Queue Status</h3>
-                    <div id="queueStatus">
-                        <div class="loading">Loading queue status...</div>
-                    </div>
-                    <button class="btn btn-success" onclick="startJobQueue()">Start Queue</button>
-                    <button class="btn btn-danger" onclick="stopJobQueue()">Stop Queue</button>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>Active Jobs</h3>
-                <div id="jobsList">
-                    <div class="loading">Loading jobs...</div>
-                </div>
-            </div>
-        </div>
-
-        <div id="database" class="tab-content">
-            <h2>Database Browser</h2>
-            <div class="db-controls">
-                <button id="backToDimGroupsBtn" class="btn btn-secondary" style="display:none;" onclick="showDimensionGroups()">← Back to Dimension Groups</button>
-                <input type="text" id="searchInput" placeholder="Search circuits, dimension groups...">
-            </div>
-            
-            <div id="db-content-area">
-                <!-- Content will be loaded here -->
-            </div>
-            
-            <div id="circuit-viewer-modal" class="modal">
-                <div class="modal-content">
-                    <span class="close" onclick="closeModal()">&times;</span>
-                    <h3>Circuit Diagram</h3>
-                    <pre id="circuit-diagram-content"></pre>
-                </div>
-            </div>
-        </div>
-
-        <div id="analysis" class="tab-content">
-            <h2>Circuit Analysis</h2>
-            
-            <div class="grid">
-                <div class="card">
-                    <h3>Factory Statistics</h3>
-                    <div id="factoryStats">
-                        <div class="loading">Loading statistics...</div>
+                <div class="form-section">
+                    <h3>📊 Factory Stats</h3>
+                    <div id="factoryStats" class="stats-grid">
+                        <div class="loading">Loading...</div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <h3>Quick Analysis</h3>
-                    <form id="analysisForm">
+                <div class="form-section">
+                    <h3>🔍 Quick Actions</h3>
+                    <button class="btn btn-secondary" onclick="refreshAll()">Refresh All</button>
+                    <button class="btn btn-secondary" onclick="clearFilters()">Clear Filters</button>
+                </div>
+            </div>
+
+            <!-- Main content area -->
+            <div class="content-area">
+                <div class="breadcrumb" id="breadcrumb">
+                    <a href="#" onclick="showDimensionGroups()">Dimension Groups</a>
+                </div>
+
+                <!-- Filter section -->
+                <div class="filter-section">
+                    <div class="filter-row">
                         <div class="form-group">
-                            <label>Dimension Group ID</label>
-                            <input type="number" id="analysisDimGroupId" min="1">
+                            <label for="filterWidth">Filter by Width</label>
+                            <input type="number" id="filterWidth" placeholder="Any">
                         </div>
-                        <button type="submit" class="btn">Analyze</button>
-                    </form>
-                    <div id="analysisResult"></div>
-                </div>
-            </div>
-
-            <div class="card">
-                <h3>ML Features & Recommendations</h3>
-                <div id="mlAnalysis">
-                    <div class="loading">Select a circuit for ML analysis...</div>
-                </div>
-            </div>
-        </div>
-
-        <div id="settings" class="tab-content">
-            <h2>Factory Settings</h2>
-            
-            <div class="grid">
-                <div class="card">
-                    <h3>API Configuration</h3>
-                    <div class="form-group">
-                        <label>API Base URL</label>
-                        <input type="text" id="apiUrl" value="http://localhost:8000/api/v1">
+                        <div class="form-group">
+                            <label for="filterLength">Filter by Length</label>
+                            <input type="number" id="filterLength" placeholder="Any">
+                        </div>
+                        <div class="form-group">
+                            <label for="filterStatus">Filter by Status</label>
+                            <select id="filterStatus">
+                                <option value="">All</option>
+                                <option value="processed">Processed</option>
+                                <option value="pending">Pending</option>
+                            </select>
+                        </div>
+                        <div>
+                            <button class="btn btn-small" onclick="applyFilters()">Apply</button>
+                        </div>
                     </div>
-                    <button class="btn" onclick="testConnection()">Test Connection</button>
-                    <div id="connectionStatus"></div>
                 </div>
 
-                <div class="card">
-                    <h3>Factory Configuration</h3>
-                    <div class="form-group">
-                        <label>Database Path</label>
-                        <input type="text" id="dbPath" value="identity_circuits.db">
-                    </div>
-                    <div class="form-group">
-                        <label>Max Equivalents</label>
-                        <input type="number" id="maxEquivalents" value="10000">
-                    </div>
-                    <button class="btn" onclick="saveSettings()">Save Settings</button>
+                <!-- Content display -->
+                <div id="contentDisplay">
+                    <div class="loading">Loading dimension groups...</div>
                 </div>
             </div>
         </div>
+    </div>
 
-        <div id="logs" class="tab-content">
-            <h2>Server Logs (Live)</h2>
-            <pre id="logViewer" style="background:#222;color:#eee;padding:1em;height:300px;overflow:auto;"></pre>
+    <!-- Enhanced Circuit Details modal -->
+    <div id="circuitModal" class="modal">
+        <div class="modal-content" style="max-width: 1200px; width: 95%;">
+            <div class="modal-header">
+                <h3>Enhanced Circuit Details</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="circuitModalContent">
+                <div class="loading">Loading circuit details...</div>
+            </div>
         </div>
     </div>
 
@@ -525,518 +673,872 @@
         const API_BASE = 'http://localhost:8000/api/v1';
         let currentView = 'dimension_groups';
         let currentDimGroupId = null;
-        let currentCircuitId = null;
+        let currentComposition = null;
+        let allDimGroups = [];
+        let allRepresentatives = [];
 
-        function showTab(tabName) {
-            // Remove 'active' from all tabs
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            // Remove 'active' from all tab-contents
-            document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-            // Add 'active' to the selected tab
-            document.querySelectorAll('.tab').forEach(tab => {
-                if (tab.textContent.trim().toLowerCase().includes(tabName)) {
-                    tab.classList.add('active');
-                }
-            });
-            // Add 'active' to the selected tab-content
-            const content = document.getElementById(tabName);
-            if (content) content.classList.add('active');
-            // Load tab-specific data
-            switch(tabName) {
-                case 'jobs':
-                    loadJobs();
-                    loadQueueStatus();
-                    break;
-                case 'database':
-                    showDimensionGroups();
-                    break;
-                case 'analysis':
-                    loadFactoryStats();
-                    break;
-                case 'logs':
-                    loadLogs();
-                    break;
-            }
-            // Logs auto-refresh
-            if (tabName === 'logs') {
-                loadLogs();
-                logsInterval = setInterval(loadLogs, 3000);
-            } else if (logsInterval) {
-                clearInterval(logsInterval);
-                logsInterval = null;
-            }
-        }
+        // Initialize the application
+        window.addEventListener('DOMContentLoaded', () => {
+            loadFactoryStats();
+            showDimensionGroups();
+        });
 
-        async function loadJobs() {
-            try {
-                const response = await fetch(`${API_BASE}/jobs`);
-                const jobs = await response.json();
-                
-                const jobsHtml = jobs.length > 0 ? `
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>Parameters</th>
-                                <th>Created</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${jobs.map(job => `
-                                <tr>
-                                    <td>${job.id}</td>
-                                    <td>${job.job_type}</td>
-                                    <td><span class="status ${job.status}">${job.status}</span></td>
-                                    <td>${JSON.stringify(job.parameters).substring(0, 50)}...</td>
-                                    <td>${new Date(job.created_at).toLocaleString()}</td>
-                                    <td>
-                                        ${job.status === 'pending' ? 
-                                            `<button class="btn btn-danger" onclick="cancelJob(${job.id})">Cancel</button>` : 
-                                            job.status === 'completed' ? 
-                                                `<button class="btn" onclick="viewJobResult(${job.id})">View Result</button>` : ''
-                                        }
-                                    </td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                ` : '<p>No jobs found.</p>';
-                
-                document.getElementById('jobsList').innerHTML = jobsHtml;
-            } catch (error) {
-                document.getElementById('jobsList').innerHTML = `<div class="error">Error loading jobs: ${error.message}</div>`;
-            }
-        }
-
-        async function loadQueueStatus() {
-            try {
-                const response = await fetch(`${API_BASE}/health`);
-                const health = await response.json();
-                
-                document.getElementById('queueStatus').innerHTML = `
-                    <div class="metrics">
-                        <div class="metric">
-                            <div class="metric-value">${health.job_queue_running ? '🟢' : '🔴'}</div>
-                            <div class="metric-label">Queue Status</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${health.database_connected ? '🟢' : '🔴'}</div>
-                            <div class="metric-label">Database</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${health.sat_solver_available ? '🟢' : '🔴'}</div>
-                            <div class="metric-label">SAT Solver</div>
-                        </div>
-                    </div>
-                `;
-            } catch (error) {
-                document.getElementById('queueStatus').innerHTML = `<div class="error">Error loading queue status: ${error.message}</div>`;
-            }
-        }
-
-        function updateJobForm() {
-            const jobType = document.getElementById('jobType').value;
-            const allFields = document.querySelectorAll('.job-form-field');
-
-            allFields.forEach(field => {
-                const supportedTypes = field.dataset.jobType.split(' ');
-                if (supportedTypes.includes(jobType)) {
-                    field.style.display = 'block';
-                } else {
-                    field.style.display = 'none';
-                }
-            });
-        }
-
-        async function createJob() {
-            const jobType = document.getElementById('jobType').value;
-            const useJobQueue = document.getElementById('useJobQueue').value === 'true';
-            let parameters = {};
-
-            // Gather parameters based on job type
-            if (jobType === 'seed_generation') {
-                parameters = {
-                    width: parseInt(document.getElementById('width').value),
-                    length: parseInt(document.getElementById('length').value),
-                    max_inverse_gates: parseInt(document.getElementById('maxInverseGates').value),
-                    enable_unrolling: true,
-                    enable_post_processing: true,
-                    enable_debris_analysis: true,
-                    enable_ml_analysis: false, // ML analysis disabled for now
-                    use_job_queue: useJobQueue
-                };
-                // For seed generation, we call a different endpoint
-                await generateCircuit(parameters);
-                return;
-
-            } else if (jobType === 'unrolling') {
-                parameters = {
-                    dim_group_id: parseInt(document.getElementById('dimGroupId').value),
-                    // Add other unrolling params if needed, e.g., from a settings modal
-                };
-            } else if (jobType === 'post_processing') {
-                parameters = {
-                    dim_group_id: parseInt(document.getElementById('dimGroupId').value),
-                };
-            } else if (jobType === 'debris_analysis') {
-                parameters = {
-                    dim_group_id: parseInt(document.getElementById('dimGroupId').value),
-                    circuit_id: parseInt(document.getElementById('circuitId').value),
-                };
-            }
-
-            // Generic job creation endpoint
-            try {
-                const response = await fetch('/api/v1/jobs/create', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        job_type: jobType,
-                        parameters: parameters,
-                        priority: 0
-                    })
-                });
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                const result = await response.json();
-                showSuccess(`Successfully created job ${result.id} (${jobType})`);
-                loadJobs();
-            } catch (error) {
-                console.error('Error creating job:', error);
-                showError(`Error creating job: ${error.message}`);
-            }
-        }
-
-        async function generateCircuit(params) {
-            // Implementation of generateCircuit function
-        }
-
-        async function startJobQueue() {
-            try {
-                await fetch(`${API_BASE}/jobs/start`, { method: 'POST' });
-                showSuccess('Job queue started');
-                loadQueueStatus();
-            } catch (error) {
-                showError(`Error starting job queue: ${error.message}`);
-            }
-        }
-
-        async function stopJobQueue() {
-            try {
-                await fetch(`${API_BASE}/jobs/stop`, { method: 'POST' });
-                showSuccess('Job queue stopped');
-                loadQueueStatus();
-            } catch (error) {
-                showError(`Error stopping job queue: ${error.message}`);
-            }
-        }
-
-        async function cancelJob(jobId) {
-            try {
-                await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
-                showSuccess('Job cancelled');
-                loadJobs();
-            } catch (error) {
-                showError(`Error cancelling job: ${error.message}`);
-            }
-        }
-
-        function refreshJobs() {
-            loadJobs();
-            loadQueueStatus();
-        }
-
-        async function showDimensionGroups() {
-            currentView = 'dimension_groups';
-            currentDimGroupId = null;
-            document.getElementById('backToDimGroupsBtn').style.display = 'none';
-            const contentArea = document.getElementById('db-content-area');
-            try {
-                const response = await fetch(`${API_BASE}/dim-groups`);
-                if (!response.ok) throw new Error('Failed to load dimension groups');
-                const dimGroups = await response.json();
-                
-                let tableHtml = `
-                    <table id="dbTable">
-                        <thead><tr><th>ID</th><th>Width</th><th>Length</th><th>Equivalents</th><th>Status</th><th>Actions</th></tr></thead>
-                        <tbody>`;
-                for (const dg of dimGroups) {
-                    tableHtml += `
-                        <tr>
-                            <td>${dg.id}</td>
-                            <td>${dg.width}</td>
-                            <td>${dg.length}</td>
-                            <td>${dg.total_equivalents}</td>
-                            <td>${dg.is_processed ? '✅ Processed' : '⏳ Pending'}</td>
-                            <td>
-                                <button class="btn" onclick="showRepresentatives(${dg.id})">View Representatives</button>
-                                <button class="btn btn-secondary" onclick="analyzeDimGroup(${dg.id})">Analyze</button>
-                            </td>
-                        </tr>`;
-                }
-                tableHtml += `</tbody></table>`;
-                contentArea.innerHTML = tableHtml;
-            } catch (error) {
-                contentArea.innerHTML = `<div class="error-box">Error loading dimension groups: ${error.message}</div>`;
-            }
-        }
-
-        async function showRepresentatives(dimGroupId) {
-            currentView = 'representatives';
-            currentDimGroupId = dimGroupId;
-            document.getElementById('backToDimGroupsBtn').style.display = 'inline-block';
-            const contentArea = document.getElementById('db-content-area');
-            try {
-                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/representatives`);
-                if (!response.ok) throw new Error('Failed to load representatives');
-                const representatives = await response.json();
-
-                let tableHtml = `
-                    <h3>Representatives for Dimension Group ${dimGroupId}</h3>
-                    <table id="dbTable">
-                        <thead><tr><th>Circuit ID</th><th>Gate Composition (N,C,CC)</th><th>Composition Count</th><th>Actions</th></tr></thead>
-                        <tbody>`;
-                for (const rep of representatives) {
-                    tableHtml += `
-                        <tr>
-                            <td>${rep.circuit.id}</td>
-                            <td>${JSON.stringify(rep.gate_composition)}</td>
-                            <td>${rep.composition_count} circuits</td>
-                            <td>
-                                <button class="btn" onclick="viewCircuitAscii(${rep.circuit.id})">View Diagram</button>
-                            </td>
-                        </tr>`;
-                }
-                tableHtml += `</tbody></table>`;
-                contentArea.innerHTML = tableHtml;
-            } catch (error) {
-                contentArea.innerHTML = `<div class="error-box">Error loading representatives: ${error.message}</div>`;
-            }
-        }
-
-        async function viewCircuitAscii(circuitId) {
-            const modal = document.getElementById('circuit-viewer-modal');
-            const diagramContent = document.getElementById('circuit-diagram-content');
-            try {
-                diagramContent.textContent = 'Loading...';
-                modal.style.display = 'block';
-
-                const response = await fetch(`${API_BASE}/circuits/${circuitId}/ascii`);
-                if (!response.ok) throw new Error('Failed to load circuit diagram');
-                const data = await response.json();
-                diagramContent.textContent = data.diagram;
-            } catch (error) {
-                diagramContent.textContent = `Error loading diagram: ${error.message}`;
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('circuit-viewer-modal').style.display = 'none';
-        }
-
-        // Close modal if user clicks outside of it
-        window.onclick = function(event) {
-            const modal = document.getElementById('circuit-viewer-modal');
-            if (event.target == modal) {
-                closeModal();
-            }
-        }
-
+        // Factory statistics
         async function loadFactoryStats() {
             try {
                 const response = await fetch(`${API_BASE}/stats`);
                 const stats = await response.json();
                 
                 document.getElementById('factoryStats').innerHTML = `
-                    <div class="metrics">
-                        <div class="metric">
-                            <div class="metric-value">${stats.total_dim_groups}</div>
-                            <div class="metric-label">Dimension Groups</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${stats.total_circuits}</div>
-                            <div class="metric-label">Total Circuits</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${stats.total_seeds_generated}</div>
-                            <div class="metric-label">Seeds Generated</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${stats.total_equivalents_generated}</div>
-                            <div class="metric-label">Equivalents</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${stats.total_simplifications}</div>
-                            <div class="metric-label">Simplifications</div>
-                        </div>
-                        <div class="metric">
-                            <div class="metric-value">${stats.active_jobs}</div>
-                            <div class="metric-label">Active Jobs</div>
-                        </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.total_dim_groups || 0}</div>
+                        <div class="stat-label">Dim Groups</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.total_circuits || 0}</div>
+                        <div class="stat-label">Circuits</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.total_representatives || 0}</div>
+                        <div class="stat-label">Representatives</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.total_equivalents || 0}</div>
+                        <div class="stat-label">Equivalents</div>
                     </div>
                 `;
             } catch (error) {
-                document.getElementById('factoryStats').innerHTML = `<div class="error">Error loading stats: ${error.message}</div>`;
+                document.getElementById('factoryStats').innerHTML = `<div class="error">Error loading stats</div>`;
             }
         }
 
-        document.getElementById('analysisForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const dimGroupId = document.getElementById('analysisDimGroupId').value;
-            if (!dimGroupId) return;
-            
+        // Seed generation
+        async function generateSeed() {
+            const width = parseInt(document.getElementById('genWidth').value);
+            const length = parseInt(document.getElementById('genLength').value);
+            const maxInverse = parseInt(document.getElementById('maxInverse').value);
+            const sequential = document.getElementById('sequential').value === 'true';
+
+            const statusDiv = document.getElementById('generateStatus');
+            statusDiv.innerHTML = '<div class="loading">Generating seed...</div>';
+
             try {
-                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/analysis`);
-                const analysis = await response.json();
+                const response = await fetch(`${API_BASE}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        width: width,
+                        length: length,
+                        max_inverse_gates: maxInverse,
+                        sequential: sequential,
+                        enable_unrolling: false,
+                        enable_post_processing: false,
+                        enable_debris_analysis: false,
+                        enable_ml_analysis: false,
+                        use_job_queue: false
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const result = await response.json();
                 
-                document.getElementById('analysisResult').innerHTML = `
-                    <div class="success">Analysis completed!</div>
-                    <div class="metrics">
-                        <div class="metric">
-                            <div class="metric-value">${analysis.total_equivalents}</div>
-                            <div class="metric-label">Equivalents</div>
+                if (result.success) {
+                    statusDiv.innerHTML = `
+                        <div class="success">
+                            ✅ Seed generated successfully!<br>
+                            Circuit ID: ${result.seed_circuit_id}<br>
+                            Dim Group: ${result.dim_group_id}<br>
+                            Time: ${result.total_time?.toFixed(2)}s
                         </div>
-                        <div class="metric">
-                            <div class="metric-value">${analysis.is_processed ? 'Yes' : 'No'}</div>
-                            <div class="metric-label">Processed</div>
+                    `;
+                    
+                    // Refresh the view
+                    refreshAll();
+                } else {
+                    statusDiv.innerHTML = `<div class="error">❌ Generation failed: ${result.error || 'Unknown error'}</div>`;
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `<div class="error">❌ Error: ${error.message}</div>`;
+            }
+        }
+
+        // Show dimension groups
+        async function showDimensionGroups() {
+            currentView = 'dimension_groups';
+            currentDimGroupId = null;
+            
+            document.getElementById('breadcrumb').innerHTML = 
+                '<span>Dimension Groups</span>';
+
+            const contentDiv = document.getElementById('contentDisplay');
+            contentDiv.innerHTML = '<div class="loading">Loading dimension groups...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/dim-groups`);
+                if (!response.ok) throw new Error('Failed to load dimension groups');
+                
+                allDimGroups = await response.json();
+                renderDimensionGroups(allDimGroups);
+            } catch (error) {
+                contentDiv.innerHTML = `<div class="error">Error loading dimension groups: ${error.message}</div>`;
+            }
+        }
+
+        // Render dimension groups table
+        function renderDimensionGroups(dimGroups) {
+            const contentDiv = document.getElementById('contentDisplay');
+            
+            if (dimGroups.length === 0) {
+                contentDiv.innerHTML = '<div class="loading">No dimension groups found. Generate some seeds!</div>';
+                return;
+            }
+
+            let tableHtml = `
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Width</th>
+                            <th>Final Length</th>
+                            <th>Total Circuits</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            dimGroups.forEach(dg => {
+                const statusClass = dg.is_processed ? 'status-processed' : 'status-pending';
+                const statusText = dg.is_processed ? '✅ Processed' : '⏳ Pending';
+                
+                tableHtml += `
+                    <tr onclick="selectDimGroup(${dg.id})" data-id="${dg.id}">
+                        <td>${dg.id}</td>
+                        <td>${dg.width}</td>
+                        <td>${dg.length}</td>
+                        <td>${dg.circuit_count}</td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td>
+                            <button class="btn btn-small" onclick="event.stopPropagation(); showGateCompositions(${dg.id})">
+                                View Gate Compositions
+                            </button>
+                            <button class="btn btn-small btn-secondary" onclick="event.stopPropagation(); batchUnrollDimensionGroup(${dg.id})" style="margin-left: 5px; font-size: 11px;">
+                                Unroll All
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += '</tbody></table>';
+            contentDiv.innerHTML = tableHtml;
+        }
+
+        // Select dimension group
+        function selectDimGroup(dimGroupId) {
+            // Remove previous selection
+            document.querySelectorAll('.table tbody tr').forEach(tr => {
+                tr.classList.remove('selected');
+            });
+            
+            // Add selection to clicked row
+            const row = document.querySelector(`tr[data-id="${dimGroupId}"]`);
+            if (row) {
+                row.classList.add('selected');
+            }
+        }
+
+        // Show gate compositions for a dimension group
+        async function showGateCompositions(dimGroupId) {
+            currentView = 'gate_compositions';
+            currentDimGroupId = dimGroupId;
+            
+            const dimGroup = allDimGroups.find(dg => dg.id === dimGroupId);
+            const dimGroupName = dimGroup ? `(${dimGroup.width}, ${dimGroup.length})` : dimGroupId;
+            
+            document.getElementById('breadcrumb').innerHTML = `
+                <a href="#" onclick="showDimensionGroups()">Dimension Groups</a> > 
+                <span>Gate Compositions ${dimGroupName}</span>
+            `;
+
+            const contentDiv = document.getElementById('contentDisplay');
+            contentDiv.innerHTML = '<div class="loading">Loading gate compositions...</div>';
+
+            try {
+                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/representatives`);
+                if (!response.ok) throw new Error('Failed to load gate compositions');
+                
+                allRepresentatives = await response.json();
+                renderGateCompositions(allRepresentatives, dimGroupId);
+            } catch (error) {
+                contentDiv.innerHTML = `<div class="error">Error loading gate compositions: ${error.message}</div>`;
+            }
+        }
+
+        // Render gate compositions table
+        function renderGateCompositions(representatives, dimGroupId) {
+            const contentDiv = document.getElementById('contentDisplay');
+            
+            if (representatives.length === 0) {
+                contentDiv.innerHTML = '<div class="loading">No gate compositions found for this dimension group.</div>';
+                return;
+            }
+
+            // Calculate totals
+            const totalCompositions = representatives.length;
+            const totalSubSeeds = representatives.reduce((sum, rep) => sum + rep.composition_count, 0);
+            const totalEquivalents = representatives.reduce((sum, rep) => sum + (rep.total_equivalents || 0), 0);
+            const totalEquivalentsIncludingSubSeeds = representatives.reduce((sum, rep) => sum + (rep.total_equivalents || 0) + rep.composition_count, 0);
+
+            let tableHtml = `
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Gate Composition</th>
+                            <th>Sub-Seed Count</th>
+                            <th>Total Equivalents</th>
+                            <th>Inc. Sub-Seeds</th>
+                            <th>Representative</th>
+                            <th>Actions</th>
+                        </tr>
+                        <tr class="summary-row">
+                            <td><strong>Totals:</strong></td>
+                            <td><strong>${totalSubSeeds}</strong></td>
+                            <td><strong>${totalEquivalents}</strong></td>
+                            <td><strong>${totalEquivalentsIncludingSubSeeds}</strong></td>
+                            <td><em>${totalCompositions} compositions</em></td>
+                            <td></td>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            representatives.forEach(rep => {
+                const [notCount, cnotCount, ccnotCount] = rep.gate_composition;
+                const compositionKey = `${notCount},${cnotCount},${ccnotCount}`;
+                const equivalentsCount = rep.total_equivalents || 0;
+                const equivalentsIncludingSubSeeds = equivalentsCount + rep.composition_count;
+                
+                tableHtml += `
+                    <tr onclick="selectGateComposition('${compositionKey}')" data-composition="${compositionKey}">
+                        <td>
+                            <div class="gate-composition">
+                                <span>NOT: ${notCount}</span>
+                                <span>CNOT: ${cnotCount}</span>
+                                <span>CCNOT: ${ccnotCount}</span>
+                            </div>
+                        </td>
+                        <td>${rep.composition_count} sub-seeds</td>
+                        <td>${equivalentsCount} equivalents</td>
+                        <td>${equivalentsIncludingSubSeeds} total</td>
+                        <td>Circuit ${rep.circuit.id}</td>
+                        <td>
+                            <button class="btn btn-small" onclick="event.stopPropagation(); showSubSeeds(${dimGroupId}, '${compositionKey}')">
+                                View Sub-Seeds
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += '</tbody></table>';
+            contentDiv.innerHTML = tableHtml;
+        }
+
+        // Select gate composition
+        function selectGateComposition(compositionKey) {
+            // Remove previous selection
+            document.querySelectorAll('.table tbody tr').forEach(tr => {
+                tr.classList.remove('selected');
+            });
+            
+            // Add selection to clicked row
+            const row = document.querySelector(`tr[data-composition="${compositionKey}"]`);
+            if (row) {
+                row.classList.add('selected');
+            }
+        }
+
+        // Show sub-seeds for a specific gate composition
+        async function showSubSeeds(dimGroupId, compositionKey) {
+            currentView = 'sub_seeds';
+            currentDimGroupId = dimGroupId;
+            currentComposition = compositionKey;
+            
+            const dimGroup = allDimGroups.find(dg => dg.id === dimGroupId);
+            const dimGroupName = dimGroup ? `(${dimGroup.width}, ${dimGroup.length})` : dimGroupId;
+            
+            document.getElementById('breadcrumb').innerHTML = `
+                <a href="#" onclick="showDimensionGroups()">Dimension Groups</a> > 
+                <a href="#" onclick="showGateCompositions(${dimGroupId})">Gate Compositions ${dimGroupName}</a> >
+                <span>Sub-Seeds [${compositionKey.replace(/,/g, ', ')}]</span>
+            `;
+
+            const contentDiv = document.getElementById('contentDisplay');
+            contentDiv.innerHTML = '<div class="loading">Loading sub-seeds...</div>';
+
+            try {
+                const apiUrl = `${API_BASE}/dim-groups/${dimGroupId}/compositions/${compositionKey}/circuits`;
+                console.log('Fetching sub-seeds from:', apiUrl);
+                
+                const response = await fetch(apiUrl);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('API Error:', response.status, errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+                
+                const circuits = await response.json();
+                console.log('Found circuits:', circuits.length);
+                await renderSubSeeds(circuits, dimGroupId, compositionKey);
+            } catch (error) {
+                console.error('Sub-seeds error:', error);
+                contentDiv.innerHTML = `<div class="error">Error loading sub-seeds: ${error.message}<br><small>Check browser console for details</small></div>`;
+            }
+        }
+
+        // Render the sub-seeds view
+        async function renderSubSeeds(circuits, dimGroupId, compositionKey) {
+            const contentDiv = document.getElementById('contentDisplay');
+            
+            const [notCount, cnotCount, ccnotCount] = compositionKey.split(',').map(Number);
+            
+            let html = `
+                <div class="table-container">
+                    <h2>Representatives for Gate Composition</h2>
+                    <div style="margin-bottom: 20px;">
+                        <span class="tag">NOT: ${notCount}</span>
+                        <span class="tag">CNOT: ${cnotCount}</span>
+                        <span class="tag">CCNOT: ${ccnotCount}</span>
+                        <span style="margin-left: 15px; font-weight: bold;">${circuits.length} representatives total</span>
+                    </div>
+                    
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Circuit ID</th>
+                                <th>Width</th>
+                                <th>Length</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            // Get equivalent counts for all circuits in parallel
+            const equivalentPromises = circuits.map(circuit => 
+                fetch(`/api/v1/circuits/${circuit.id}/equivalents`)
+                    .then(response => response.json())
+                    .then(equivalents => ({ circuitId: circuit.id, count: equivalents.length }))
+                    .catch(() => ({ circuitId: circuit.id, count: 0 }))
+            );
+            
+            const equivalentCounts = await Promise.all(equivalentPromises);
+            const equivalentMap = Object.fromEntries(equivalentCounts.map(e => [e.circuitId, e.count]));
+            
+            circuits.forEach(circuit => {
+                const equivalentCount = equivalentMap[circuit.id] || 0;
+                const fullyUnrolled = circuit.fully_unrolled || false;
+                
+                let statusChip;
+                if (fullyUnrolled) {
+                    statusChip = `<span class="status-chip chip-fully-unrolled">✅ Fully Unrolled (${equivalentCount} equivalents)</span>`;
+                } else if (equivalentCount > 0) {
+                    statusChip = `<span class="status-chip chip-has-equivalents">Representative (${equivalentCount} equivalents)</span>`;
+                } else {
+                    statusChip = `<span class="status-chip chip-representative">Representative</span>`;
+                }
+                
+                html += `
+                    <tr>
+                        <td>Circuit ${circuit.id}</td>
+                        <td>${circuit.width}</td>
+                        <td>${circuit.length}</td>
+                        <td>${statusChip}</td>
+                        <td>
+                            <button class="btn btn-small" onclick="viewCircuitDiagram(${circuit.id})">View Details</button>
+                            <button class="btn btn-small btn-secondary" onclick="unrollCircuit(${circuit.id})" ${fullyUnrolled ? 'disabled title="Already fully unrolled"' : ''}>Unroll</button>
+                            <button class="btn btn-small" onclick="showEquivalents(${circuit.id})" style="background-color: #6B46C1;">View Equivalents</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            contentDiv.innerHTML = html;
+        }
+
+        // Unroll circuit - Generate equivalents and manage sub-seed relationships
+        async function unrollCircuit(circuitId) {
+            const confirmed = confirm(`Are you sure you want to unroll Circuit ${circuitId}? This will:\n\n• Generate equivalent circuits\n• Check for matches with existing sub-seeds\n• Convert matches to equivalents\n• Update the representative structure\n\nThis action cannot be undone.`);
+            
+            if (!confirmed) return;
+
+            try {
+                // Show loading state
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Unrolling...';
+                button.disabled = true;
+
+                // Make API call to unroll
+                const response = await fetch(`${API_BASE}/circuits/${circuitId}/unroll`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        max_equivalents: 100,
+                        check_existing: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const result = await response.json();
+                
+                // Show success message
+                showMessage(`✅ Circuit ${circuitId} unrolled successfully!\n\n` +
+                          `• Generated ${result.equivalents_generated} new equivalents\n` +
+                          `• Merged ${result.sub_seeds_merged} existing sub-seeds\n` +
+                          `• Total time: ${result.total_time?.toFixed(2)}s\n\n` +
+                          `The circuit has been fully unrolled and is now marked as complete.`, 'success');
+
+                // Update button to show fully unrolled state
+                button.textContent = '✅ Unrolled';
+                button.disabled = true;
+                button.style.backgroundColor = '#10b981';
+                button.style.color = 'white';
+                button.title = 'Circuit has been fully unrolled';
+
+                // Refresh the current view to show updated data
+                refreshCurrentView();
+
+            } catch (error) {
+                console.error('Unroll error:', error);
+                showMessage(`❌ Unroll failed: ${error.message}`, 'error');
+                
+                // Reset button
+                if (button) {
+                    button.textContent = originalText;
+                    button.disabled = false;
+                }
+            }
+        }
+
+        // Batch unroll entire dimension group
+        async function batchUnrollDimensionGroup(dimGroupId) {
+            const dimGroup = allDimGroups.find(dg => dg.id === dimGroupId);
+            const dimGroupName = dimGroup ? `(${dimGroup.width}, ${dimGroup.length})` : `ID ${dimGroupId}`;
+            
+            const confirmed = confirm(`⚠️ EXHAUSTIVE UNROLL WARNING ⚠️
+
+You are about to unroll ALL circuits in dimension group ${dimGroupName}.
+
+This is an EXHAUSTIVE process that will:
+• Go through ALL gate compositions in this dimension group
+• Unroll EVERY circuit within each composition
+• Generate equivalent circuits for each one
+• Merge sub-seeds where applicable
+• May take SIGNIFICANT TIME to complete (minutes to hours)
+• Run in the background
+
+Total circuits: ${dimGroup ? dimGroup.circuit_count : 'Unknown'}
+
+Are you absolutely sure you want to proceed?`);
+            
+            if (!confirmed) return;
+
+            try {
+                // Show loading state
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Starting...';
+                button.disabled = true;
+
+                // Make API call to start batch unroll
+                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/unroll-all`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        max_equivalents: 100,
+                        check_existing: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const result = await response.json();
+                
+                // Show success message
+                showMessage(`🚀 Exhaustive unroll started for dimension group ${dimGroupName}!\n\n` +
+                          `• Total circuits to process: ${result.total_circuits}\n` +
+                          `• Status: ${result.status}\n` +
+                          `• This will run in the background\n` +
+                          `• Check server logs for progress\n\n` +
+                          `${result.warning}`, 'success');
+
+                // Reset button
+                button.textContent = originalText;
+                button.disabled = false;
+
+                // Refresh stats to show updated data
+                loadFactoryStats();
+
+            } catch (error) {
+                console.error('Batch unroll error:', error);
+                showMessage(`❌ Batch unroll failed: ${error.message}`, 'error');
+                
+                // Reset button
+                if (event.target) {
+                    event.target.textContent = '⚠️ Unroll All';
+                    event.target.disabled = false;
+                }
+            }
+        }
+
+        // Batch unroll specific gate composition - REMOVED
+        // This function was removed as the "Unroll Composition" button was causing UI clutter
+
+        // Show equivalents for a circuit
+        async function showEquivalents(circuitId) {
+            try {
+                const response = await fetch(`${API_BASE}/circuits/${circuitId}/equivalents`);
+                if (!response.ok) throw new Error('Failed to load equivalents');
+                
+                const equivalents = await response.json();
+                
+                if (equivalents.length === 0) {
+                    showMessage(`Circuit ${circuitId} has no equivalents yet. Try unrolling it first!`, 'info');
+                    return;
+                }
+
+                // Create modal content for equivalents
+                const modal = document.getElementById('circuitModal');
+                const content = document.getElementById('circuitModalContent');
+                
+                let html = `
+                    <h3>Equivalents for Circuit ${circuitId}</h3>
+                    <p>${equivalents.length} equivalent circuits found:</p>
+                    <table class="table" style="margin-top: 15px;">
+                        <thead>
+                            <tr>
+                                <th>Equivalent ID</th>
+                                <th>Width</th>
+                                <th>Length</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                equivalents.forEach(equiv => {
+                    html += `
+                        <tr>
+                            <td>Circuit ${equiv.id}</td>
+                            <td>${equiv.width}</td>
+                            <td>${equiv.length}</td>
+                            <td>
+                                <button class="btn btn-small" onclick="viewCircuitDiagram(${equiv.id})">View Diagram</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                html += `
+                        </tbody>
+                    </table>
+                `;
+
+                content.innerHTML = html;
+                modal.style.display = 'block';
+
+            } catch (error) {
+                showMessage(`Error loading equivalents: ${error.message}`, 'error');
+            }
+        }
+
+        // View enhanced circuit details
+        async function viewCircuitDiagram(circuitId) {
+            const modal = document.getElementById('circuitModal');
+            const content = document.getElementById('circuitModalContent');
+            
+            content.innerHTML = '<div class="loading">Loading enhanced circuit details...</div>';
+            modal.style.display = 'block';
+
+            try {
+                const response = await fetch(`${API_BASE}/circuits/${circuitId}/details`);
+                if (!response.ok) throw new Error('Failed to load circuit details');
+                
+                const data = await response.json();
+                
+                // Generate truth table HTML
+                const truthTableHtml = generateTruthTableHtml(data.truth_table, data.width);
+                
+                // Generate gate list HTML
+                const gateListHtml = data.gate_descriptions.map(desc => 
+                    `<div class="gate-item">${desc}</div>`
+                ).join('');
+
+                content.innerHTML = `
+                    <div style="margin-bottom: 20px;">
+                        <h3 style="margin: 0; color: #4a5568;">Circuit ${circuitId} - ${data.width} qubits, ${data.length} gates</h3>
+                        <p style="margin: 5px 0 0 0; color: #718096;">Permutation: [${data.permutation.join(', ')}]</p>
+                    </div>
+
+                    <div class="circuit-details-container">
+                        <div class="circuit-section">
+                            <h4>🔗 Circuit Diagram</h4>
+                            <div class="circuit-diagram">${data.ascii_diagram}</div>
+                        </div>
+
+                        <div class="circuit-section">
+                            <h4>📊 Hamming Distance Plot</h4>
+                            <div class="hamming-chart-container">
+                                <canvas id="hammingChart-${circuitId}"></canvas>
+                            </div>
+                        </div>
+
+                        <div class="circuit-section">
+                            <h4>📋 Truth Table</h4>
+                            <div class="truth-table">
+                                ${truthTableHtml}
+                            </div>
+                        </div>
+
+                        <div class="circuit-section">
+                            <h4>🚪 Gate Sequence</h4>
+                            <div class="gate-list">
+                                ${gateListHtml}
+                            </div>
                         </div>
                     </div>
-                    <h4>Debris Analysis:</h4>
-                    <pre>${JSON.stringify(analysis.debris_analysis, null, 2)}</pre>
-                    <h4>ML Analysis:</h4>
-                    <pre>${JSON.stringify(analysis.ml_analysis, null, 2)}</pre>
                 `;
-            } catch (error) {
-                document.getElementById('analysisResult').innerHTML = `<div class="error">Analysis failed: ${error.message}</div>`;
-            }
-        });
 
-        async function analyzeCircuit(circuitId) {
-            try {
-                const response = await fetch(`${API_BASE}/ml/analysis/${circuitId}`);
-                const analysis = await response.json();
-                
-                document.getElementById('mlAnalysis').innerHTML = `
-                    <h4>ML Analysis for Circuit ${circuitId}</h4>
-                    <div class="metrics">
-                        <div class="metric">
-                            <div class="metric-value">${analysis.complexity_prediction.toFixed(2)}</div>
-                            <div class="metric-label">Complexity Score</div>
-                        </div>
-                    </div>
-                    <h4>Features:</h4>
-                    <pre>${JSON.stringify(analysis.features, null, 2)}</pre>
-                    <h4>Optimization Suggestions:</h4>
-                    <ul>
-                        ${analysis.optimization_suggestions.map(suggestion => `<li>${suggestion}</li>`).join('')}
-                    </ul>
-                `;
+                // Create Hamming distance chart
+                setTimeout(() => {
+                    createHammingChart(`hammingChart-${circuitId}`, data.hamming_distances);
+                }, 100);
+
             } catch (error) {
-                document.getElementById('mlAnalysis').innerHTML = `<div class="error">ML analysis failed: ${error.message}</div>`;
+                content.innerHTML = `<div class="error">Error loading enhanced circuit details: ${error.message}</div>`;
             }
         }
 
-        async function analyzeDimGroup(dimGroupId) {
-            try {
-                const response = await fetch(`${API_BASE}/dim-groups/${dimGroupId}/analysis`);
-                const analysis = await response.json();
-                
-                // Switch to analysis tab and show results
-                showTab('analysis');
-                document.getElementById('analysisDimGroupId').value = dimGroupId;
-                document.getElementById('analysisForm').dispatchEvent(new Event('submit'));
-            } catch (error) {
-                showError(`Analysis failed: ${error.message}`);
+        function generateTruthTableHtml(truthTable, width) {
+            if (!truthTable || truthTable.length === 0) {
+                return '<p>No truth table data available</p>';
             }
-        }
 
-        async function testConnection() {
-            try {
-                const response = await fetch(`${API_BASE}/health`);
-                const health = await response.json();
-                
-                document.getElementById('connectionStatus').innerHTML = `
-                    <div class="success">
-                        ✅ Connection successful!<br>
-                        Status: ${health.status}<br>
-                        Database: ${health.database_connected ? 'Connected' : 'Disconnected'}<br>
-                        SAT Solver: ${health.sat_solver_available ? 'Available' : 'Unavailable'}
-                    </div>
-                `;
-            } catch (error) {
-                document.getElementById('connectionStatus').innerHTML = `
-                    <div class="error">❌ Connection failed: ${error.message}</div>
-                `;
-            }
-        }
-
-        function saveSettings() {
-            // Save settings to localStorage
-            const settings = {
-                apiUrl: document.getElementById('apiUrl').value,
-                dbPath: document.getElementById('dbPath').value,
-                maxEquivalents: document.getElementById('maxEquivalents').value
-            };
+            let html = '<table>';
             
-            localStorage.setItem('factorySettings', JSON.stringify(settings));
-            showSuccess('Settings saved!');
+            // Header
+            html += '<thead><tr>';
+            for (let i = 0; i < width; i++) {
+                html += `<th class="input-bits">In${i}</th>`;
+            }
+            html += '<th style="background: #888; color: white;">→</th>';
+            for (let i = 0; i < width; i++) {
+                html += `<th class="output-bits">Out${i}</th>`;
+            }
+            html += '</tr></thead>';
+
+            // Body
+            html += '<tbody>';
+            truthTable.forEach((row, index) => {
+                html += '<tr>';
+                row.forEach((bit, bitIndex) => {
+                    const isInput = bitIndex < width;
+                    const className = isInput ? 'input-bits' : 'output-bits';
+                    html += `<td class="${className}">${bit}</td>`;
+                    if (bitIndex === width - 1) {
+                        html += '<td style="background: #f0f0f0; font-weight: bold;">→</td>';
+                    }
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table>';
+
+            return html;
         }
 
-        function loadSettings() {
-            const settings = JSON.parse(localStorage.getItem('factorySettings') || '{}');
+        function createHammingChart(canvasId, hammingDistances) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
             
-            if (settings.apiUrl) document.getElementById('apiUrl').value = settings.apiUrl;
-            if (settings.dbPath) document.getElementById('dbPath').value = settings.dbPath;
-            if (settings.maxEquivalents) document.getElementById('maxEquivalents').value = settings.maxEquivalents;
+            // Destroy existing chart if it exists
+            if (canvas.chart) {
+                canvas.chart.destroy();
+            }
+
+            const gateLabels = hammingDistances.map((_, index) => `Gate ${index + 1}`);
+            
+            canvas.chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: gateLabels,
+                    datasets: [{
+                        label: 'Hamming Distance from Identity',
+                        data: hammingDistances,
+                        borderColor: '#667eea',
+                        backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        fill: true,
+                        pointBackgroundColor: '#667eea',
+                        pointBorderColor: '#4a5568',
+                        pointBorderWidth: 1,
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Hamming Distance'
+                            },
+                            grid: {
+                                color: '#e2e8f0'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Gate Step'
+                            },
+                            grid: {
+                                color: '#e2e8f0'
+                            }
+                        }
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Circuit Complexity Evolution',
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        },
+                        legend: {
+                            display: false
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
         }
 
-        function showSuccess(message) {
+        // Close modal
+        function closeModal() {
+            document.getElementById('circuitModal').style.display = 'none';
+        }
+
+        // Apply filters
+        function applyFilters() {
+            const width = document.getElementById('filterWidth').value;
+            const length = document.getElementById('filterLength').value;
+            const status = document.getElementById('filterStatus').value;
+
+            if (currentView === 'dimension_groups') {
+                let filtered = allDimGroups;
+
+                if (width) {
+                    filtered = filtered.filter(dg => dg.width === parseInt(width));
+                }
+                if (length) {
+                    filtered = filtered.filter(dg => dg.length === parseInt(length));
+                }
+                if (status === 'processed') {
+                    filtered = filtered.filter(dg => dg.is_processed);
+                } else if (status === 'pending') {
+                    filtered = filtered.filter(dg => !dg.is_processed);
+                }
+
+                renderDimensionGroups(filtered);
+            }
+        }
+
+        // Clear filters
+        function clearFilters() {
+            document.getElementById('filterWidth').value = '';
+            document.getElementById('filterLength').value = '';
+            document.getElementById('filterStatus').value = '';
+            
+            if (currentView === 'dimension_groups') {
+                renderDimensionGroups(allDimGroups);
+            } else if (currentView === 'gate_compositions') {
+                renderGateCompositions(allRepresentatives, currentDimGroupId);
+            }
+        }
+
+        // Refresh all data
+        function refreshAll() {
+            loadFactoryStats();
+            if (currentView === 'dimension_groups') {
+                showDimensionGroups();
+            } else if (currentView === 'gate_compositions' && currentDimGroupId) {
+                showGateCompositions(currentDimGroupId);
+            }
+        }
+
+        // Refresh current view
+        function refreshCurrentView() {
+            if (currentView === 'dimension_groups') {
+                showDimensionGroups();
+            } else if (currentView === 'gate_compositions' && currentDimGroupId) {
+                showGateCompositions(currentDimGroupId);
+            } else if (currentView === 'sub_seeds' && currentDimGroupId && currentComposition) {
+                showSubSeeds(currentDimGroupId, currentComposition);
+            }
+            
+            // Also refresh stats
+            loadFactoryStats();
+        }
+
+        // Show message
+        function showMessage(message, type = 'info') {
             const div = document.createElement('div');
-            div.className = 'success';
+            div.className = type === 'error' ? 'error' : 'success';
             div.textContent = message;
+            div.style.position = 'fixed';
+            div.style.top = '20px';
+            div.style.right = '20px';
+            div.style.zIndex = '1001';
             document.body.appendChild(div);
             setTimeout(() => div.remove(), 3000);
         }
 
-        function showError(message) {
-            const div = document.createElement('div');
-            div.className = 'error';
-            div.textContent = message;
-            document.body.appendChild(div);
-            setTimeout(() => div.remove(), 5000);
-        }
-
-        document.getElementById('searchInput').addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            const rows = document.querySelectorAll('.table tbody tr');
-            
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
-            });
-        });
-
-        async function loadLogs() {
-            try {
-                const response = await fetch(`${API_BASE}/logs`);
-                const data = await response.json();
-                document.getElementById('logViewer').textContent = data.logs.join('\n');
-            } catch (error) {
-                document.getElementById('logViewer').textContent = 'Error loading logs: ' + error.message;
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('circuitModal');
+            if (event.target === modal) {
+                closeModal();
             }
         }
-
-        let logsInterval = null;
-        window.addEventListener('DOMContentLoaded', () => {
-            loadSettings();
-            showTab('jobs');
-            updateJobForm(); // Initialize form on page load
-            loadJobs();
-            loadFactoryStats();
-        });
     </script>
 </body>
 </html> 

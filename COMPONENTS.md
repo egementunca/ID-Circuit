@@ -1,422 +1,480 @@
-# Identity Factory Components Documentation
+# ID-Circuit: Technical Component Documentation
 
-This document provides detailed explanations of each component in the Identity Circuit Factory system.
+This document provides detailed technical information about the ID-Circuit system architecture, component interactions, and implementation details.
 
-## 🏗️ System Architecture Overview
-
-The Identity Factory is built as a modular system with clear separation of concerns:
+## System Architecture Overview
 
 ```
-Identity Factory
-├── Core Engine (factory_manager.py)
-├── Data Layer (database.py)
-├── Circuit Generation (seed_generator.py)
-├── Transformation Layer (unroller.py)
-├── Optimization Layer (post_processor.py)
-├── Analysis Layer (debris_cancellation.py, ml_features.py)
-├── API Layer (api/)
-├── CLI Interface (cli.py)
-└── Job System (job_queue.py)
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Web Frontend  │    │   REST API      │    │   Core Engine   │
+│   (frontend.html)│◄──►│   (FastAPI)     │◄──►│   (Factory)     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                │                       │
+                                ▼                       ▼
+                       ┌─────────────────┐    ┌─────────────────┐
+                       │   Database      │    │   SAT Synthesis │
+                       │   (SQLite)      │    │   (sat_revsynth)│
+                       └─────────────────┘    └─────────────────┘
 ```
 
----
+## Core Components
 
-## 🔧 Core Components
+### 1. Factory Manager (`identity_factory/factory_manager.py`)
 
-### 1. Factory Manager (`factory_manager.py`)
-
-**Purpose**: The central orchestrator that coordinates all operations in the Identity Factory.
+**Purpose**: Main orchestrator that coordinates all system operations.
 
 **Key Responsibilities**:
 
--   Manages the entire circuit generation pipeline
--   Coordinates between different components
--   Handles configuration and initialization
--   Provides high-level API for external users
+-   Initialize and manage all system components
+-   Coordinate circuit generation workflow
+-   Handle configuration and logging setup
+-   Manage job queue for background processing
 
-**Main Classes**:
+**Key Classes**:
 
--   `FactoryConfig`: Configuration dataclass for factory settings
--   `IdentityFactory`: Main factory class that orchestrates everything
+-   `IdentityFactory`: Main factory class
+-   `FactoryConfig`: Configuration management
+-   `FactoryStats`: Statistics tracking
 
-**Key Methods**:
+**Data Flow**:
 
-```python
-# Generate a single identity circuit
-factory.generate_identity_circuit(width=3, gate_count=5)
-
-# Generate multiple circuits in batch
-factory.batch_generate([(3,3), (3,4), (4,3)])
-
-# Get factory statistics
-stats = factory.get_factory_stats()
-
-# Analyze a dimension group
-analysis = factory.get_dimension_group_analysis(dim_group_id)
+```
+User Request → Factory Manager → Component Orchestration → Database Storage
 ```
 
-**Configuration Options**:
+### 2. Seed Generator (`identity_factory/seed_generator.py`)
 
--   `db_path`: Database file location
--   `max_inverse_gates`: Maximum gates for inverse synthesis
--   `enable_post_processing`: Whether to run simplification
--   `enable_ml_features`: Whether to extract ML features
--   `solver`: Which SAT solver to use
-
-### 2. Database Manager (`database.py`)
-
-**Purpose**: Manages all data persistence using SQLite database with the corrected schema.
+**Purpose**: Generate identity circuits using SAT-based synthesis.
 
 **Key Responsibilities**:
 
--   Stores circuit data and metadata
--   Manages dimension groups as collections of identity circuits
--   Tracks representatives chosen from dimension groups
--   Handles relationships between circuits and equivalents
-
-**Main Tables**:
-
--   `circuits`: Individual circuit data
--   `dim_groups`: Collections of circuits with same (width, gate_count)
--   `representatives`: Representative circuits chosen from dimension groups
--   `circuit_equivalents`: Equivalent circuits generated from representatives
--   `simplifications`: Circuit simplification records
--   `debris_cancellation_records`: Debris analysis results
--   `ml_features`: Machine learning features
--   `jobs`: Background job tracking
-
-**Key Data Classes**:
-
-```python
-@dataclass
-class DimGroupRecord:
-    """Represents a dimension group - collection of identity circuits."""
-    id: Optional[int]
-    width: int
-    gate_count: int
-    circuit_count: int
-    is_processed: bool
-
-@dataclass
-class RepresentativeRecord:
-    """Represents a representative circuit chosen from a dimension group."""
-    id: Optional[int]
-    dim_group_id: int
-    circuit_id: int
-    gate_composition: Dict[str, int]
-    is_primary: bool
-```
-
-**Key Methods**:
-
-```python
-# Store a new circuit in a dimension group
-db.store_circuit(circuit_record)
-
-# Get representatives for a dimension group
-representatives = db.get_representatives_for_dim_group(dim_group_id)
-
-# Get all equivalents for a dimension group
-equivalents = db.get_all_equivalents_for_dim_group(dim_group_id)
-```
-
----
-
-## 🔬 Circuit Generation & Management
-
-### 3. Seed Generator (`seed_generator.py`)
-
-**Purpose**: Creates identity circuits and manages representative selection.
-
-**How It Works**:
-
-1. Generates identity circuits using SAT-based synthesis
-2. Organizes circuits into dimension groups by (width, gate_count)
-3. Optionally selects representatives from generated circuits
-4. Validates circuits are truly identity circuits
+-   Create forward and inverse circuits
+-   Combine circuits to form identity circuits
+-   Manage circuit deduplication
+-   Handle representative selection
 
 **Key Classes**:
 
--   `SeedGenerator`: Main generator class
--   `SeedGenerationResult`: Result container
-
-**Key Methods**:
-
-```python
-# Generate a single identity circuit
-result = generator.generate_seed(width=3, gate_count=5)
-
-# Generate with representative selection
-result = generator.generate_seed(width=3, gate_count=5, create_representative=True)
-```
+-   `SeedGenerator`: Main generation engine
+-   `SeedGenerationResult`: Generation results
 
 **Algorithm**:
 
-1. **Random Permutation**: Creates a random permutation of qubits
-2. **SAT Synthesis**: Uses `sat_revsynth` to find inverse circuit
-3. **Validation**: Ensures the combined circuit is identity
-4. **Dimension Grouping**: Places circuit in appropriate dimension group
-5. **Representative Selection**: Optionally marks circuit as representative
+1. Generate random forward circuit using SAT synthesis
+2. Compute inverse circuit
+3. Combine forward + inverse = identity circuit
+4. Check for duplicates and manage representatives
 
-### 4. Circuit Unroller (`unroller.py`)
+### 3. Circuit Unroller (`identity_factory/unroller.py`)
 
-**Purpose**: Creates equivalent circuits from representative circuits through transformations.
+**Purpose**: Generate equivalent circuits from representatives using transformations.
 
-**Transformation Types**:
+**Key Responsibilities**:
 
--   **Swap Operations**: Swaps adjacent gates that commute
--   **Rotations**: Rotates the entire circuit
--   **Permutations**: Applies qubit permutations
--   **Reversals**: Reverses gate order
--   **Local Unroll**: Explores local transformations
--   **Full Unroll**: Comprehensive exploration using sat_revsynth
+-   Apply sat_revsynth unrolling algorithms
+-   Store equivalent circuits in database
+-   Manage unrolling statistics
+-   Handle data validation and error recovery
 
 **Key Classes**:
 
--   `CircuitUnroller`: Main unroller class
--   `UnrollResult`: Result container
+-   `CircuitUnroller`: Main unrolling engine
+-   `UnrollResult`: Unrolling operation results
 
-**Key Methods**:
+**Transformation Methods**:
 
-```python
-# Unroll all representatives in a dimension group
-result = unroller.unroll_dimension_group(dim_group_id)
+-   `circuit.unroll([])`: Full sat_revsynth unrolling
+-   Swap space exploration
+-   Circuit rotations and permutations
+-   Reverse operations
 
-# Unroll with specific transformation types
-result = unroller.unroll_dimension_group(
-    dim_group_id,
-    unroll_types=['swap', 'rotation']
-)
+**Data Flow**:
 
-# Unroll all unprocessed dimension groups
-results = unroller.unroll_all_dimension_groups()
+```
+Representative Circuit → sat_revsynth.unroll() → Equivalent Circuits → Database Storage
 ```
 
-**Algorithm**:
+### 4. Database Layer (`identity_factory/database.py`)
 
-1. **Load Representatives**: Gets all representative circuits from dimension group
-2. **Apply Transformations**: Uses `sat_revsynth` circuit operations on each representative
-3. **Generate Equivalents**: Creates new circuits through transformations
-4. **Deduplication**: Removes duplicate circuits (handled by database constraints)
-5. **Storage**: Saves equivalent circuits with relationships to representatives
+**Purpose**: SQLite-based persistence with relationship management.
 
----
+**Key Responsibilities**:
 
-## ⚡ Optimization & Analysis
-
-### 5. Post Processor (`post_processor.py`)
-
-**Purpose**: Simplifies and optimizes circuits using various techniques.
-
-**Simplification Types**:
-
--   **Swap Cancellation**: Cancels adjacent swap gates
--   **Template Matching**: Applies known simplification patterns
--   **Gate Cancellation**: Removes redundant gates
+-   Store and retrieve circuit data
+-   Manage dimension group relationships
+-   Handle representative and equivalent mappings
+-   Provide efficient querying capabilities
 
 **Key Classes**:
 
--   `PostProcessor`: Main processor class
--   `SimplificationResult`: Result container
+-   `CircuitDatabase`: Main database manager
+-   `CircuitRecord`: Circuit data structure
+-   `DimGroupRecord`: Dimension group data
+-   `RepresentativeRecord`: Representative mappings
 
-**Key Methods**:
+**Database Schema**:
 
-```python
-# Simplify a single circuit
-result = processor.simplify_circuit(circuit_id)
-
-# Simplify entire dimension group
-results = processor.simplify_dimension_group(dim_group_id)
+```sql
+-- Core tables
+circuits (id, width, gate_count, gates, permutation, representative_id, ...)
+dim_groups (id, width, gate_count, circuit_count, is_processed, ...)
+representatives (id, dim_group_id, circuit_id, gate_composition, ...)
+equivalents (id, circuit_id, representative_id, unroll_type, ...)
+dim_group_circuits (dim_group_id, circuit_id) -- Many-to-many relationship
 ```
 
-### 6. Debris Cancellation (`debris_cancellation.py`)
+**Key Relationships**:
 
-**Purpose**: Analyzes circuits for debris cancellation opportunities and non-triviality.
+-   Circuits belong to dimension groups (many-to-many)
+-   Representatives are selected from circuits
+-   Equivalents point to their representative circuits
+-   All circuits have a `representative_id` (self-reference for representatives)
+
+### 5. API Layer (`identity_factory/api/`)
+
+**Purpose**: FastAPI-based REST API for external access.
+
+**Key Components**:
+
+-   `server.py`: FastAPI application setup
+-   `endpoints.py`: API endpoint definitions
+-   `models.py`: Pydantic request/response models
+-   `client.py`: Python client library
+
+**Key Endpoints**:
+
+```
+POST /api/v1/generate          # Generate new circuits
+GET  /api/v1/dim-groups        # List dimension groups
+GET  /api/v1/dim-groups/{id}/representatives  # Get representatives
+POST /api/v1/circuits/{id}/unroll             # Unroll a circuit
+GET  /api/v1/circuits/{id}/equivalents        # Get equivalents
+GET  /api/v1/circuits/{id}/ascii              # Get ASCII diagram
+POST /api/v1/dim-groups/{id}/unroll-all       # Unroll all representatives
+```
+
+### 6. Web Interface (`frontend.html`)
+
+**Purpose**: Modern JavaScript-based user interface.
 
 **Key Features**:
 
--   Identifies potential debris gates
--   Calculates non-triviality scores
--   Suggests optimizations
+-   Real-time circuit visualization
+-   Interactive dimension group management
+-   Circuit unrolling controls
+-   ASCII diagram display
+-   Statistics dashboard
 
-**Key Methods**:
+**Technologies**:
 
-```python
-# Analyze a representative circuit
-result = debris_manager.analyze_dim_group_representative(dim_group_id, circuit_id)
+-   Vanilla JavaScript (no frameworks)
+-   Fetch API for backend communication
+-   CSS Grid/Flexbox for responsive layout
+-   ASCII art for circuit visualization
 
-# Get high-complexity circuits
-circuits = debris_manager.get_high_complexity_circuits(threshold=2.0)
-```
-
-### 7. ML Features (`ml_features.py`)
-
-**Purpose**: Extracts machine learning features from circuits for analysis and optimization.
-
-**Feature Types**:
-
--   Gate composition features
--   Circuit complexity metrics
--   Structural features
--   Optimization potential indicators
-
-**Key Methods**:
-
-```python
-# Extract features from a circuit
-features = ml_manager.extract_features(circuit)
-
-# Analyze circuit with ML
-result = ml_manager.analyze_circuit(circuit_id, dim_group_id, circuit)
-```
-
----
-
-## 🌐 API Layer
-
-### 8. API Server (`api/server.py`)
-
-**Purpose**: Provides REST API interface for the Identity Factory.
-
-**Key Features**:
-
--   FastAPI-based REST API
--   Automatic OpenAPI documentation
--   Background task processing
--   Error handling and validation
-
-### 9. API Endpoints (`api/endpoints.py`)
-
-**Main Endpoints**:
-
--   `POST /api/v1/generate` - Generate identity circuits
--   `GET /api/v1/dimension-groups` - List dimension groups
--   `GET /api/v1/dimension-groups/{id}` - Get dimension group details
--   `POST /api/v1/unroll/{id}` - Unroll dimension group
--   `GET /api/v1/analyze/{id}` - Analyze dimension group
--   `POST /api/v1/batch-generate` - Batch generate circuits
-
-### 10. API Models (`api/models.py`)
-
-**Key Models**:
-
-```python
-class GenerateRequest(BaseModel):
-    width: int
-    gate_count: int
-    enable_unrolling: bool = True
-    enable_post_processing: bool = True
-
-class DimensionGroupResponse(BaseModel):
-    id: int
-    width: int
-    gate_count: int
-    circuit_count: int
-    representatives: List[Dict[str, Any]]
-    total_equivalents: int
-```
-
----
-
-## 🖥️ User Interfaces
-
-### 11. CLI Interface (`cli.py`)
-
-**Purpose**: Command-line interface for direct usage.
-
-**Main Commands**:
-
-```bash
-# Generate identity circuit
-python -m identity_factory generate 3 5
-
-# List dimension groups with representatives
-python -m identity_factory list --show-representatives
-
-# Unroll dimension group
-python -m identity_factory unroll 1
-
-# Analyze dimension group
-python -m identity_factory analyze 1
-
-# Get statistics
-python -m identity_factory stats
-```
-
-### 12. Job Queue (`job_queue.py`)
-
-**Purpose**: Background job processing for long-running operations.
-
-**Features**:
-
--   Redis-based job queue
--   Distributed processing
--   Job status tracking
--   Error handling and retry logic
-
----
-
-## 📊 Data Flow
+## Data Flow Patterns
 
 ### Circuit Generation Flow
 
-1. **Request**: User requests identity circuit generation
-2. **Generation**: `SeedGenerator` creates identity circuit
-3. **Grouping**: Circuit is placed in appropriate dimension group
-4. **Representative**: Circuit may be marked as representative
-5. **Unrolling**: Representatives generate equivalent circuits
-6. **Storage**: All circuits and relationships are stored
-
-### Analysis Flow
-
-1. **Selection**: User selects dimension group for analysis
-2. **Retrieval**: System retrieves all circuits and representatives
-3. **Processing**: Various analyses are performed (ML, debris, etc.)
-4. **Aggregation**: Results are aggregated and summarized
-5. **Response**: Analysis results are returned to user
-
----
-
-## 🔧 Configuration & Customization
-
-### Factory Configuration
-
-```python
-config = FactoryConfig(
-    db_path="circuits.db",
-    max_inverse_gates=40,
-    max_equivalents=10000,
-    solver="minisat-gh",
-    enable_unrolling=True,
-    enable_post_processing=True,
-    enable_debris_analysis=True,
-    enable_ml_features=True
-)
+```
+1. User Request (width, gate_count)
+   ↓
+2. Factory Manager → Seed Generator
+   ↓
+3. SAT Synthesis (sat_revsynth)
+   ↓
+4. Circuit Creation + Validation
+   ↓
+5. Database Storage
+   ↓
+6. Representative Assignment
+   ↓
+7. API Response
 ```
 
-### Component Customization
+### Circuit Unrolling Flow
 
-Each component can be configured independently:
+```
+1. User Request (circuit_id, max_equivalents)
+   ↓
+2. API → Factory Manager → Unroller
+   ↓
+3. Database → Circuit Record
+   ↓
+4. Record → sat_revsynth Circuit Object
+   ↓
+5. sat_revsynth.unroll() → Equivalent Circuits
+   ↓
+6. Circuit Objects → Database Storage
+   ↓
+7. API Response with Results
+```
 
--   **SeedGenerator**: SAT solver, maximum attempts, validation settings
--   **Unroller**: Transformation types, maximum equivalents, deduplication
--   **PostProcessor**: Simplification techniques, optimization levels
--   **Database**: Connection settings, schema options
+### Data Validation Flow
+
+```
+1. Database Read → Circuit Record
+   ↓
+2. Gate Data Validation
+   ↓
+3. Type Checking (list, tuple, int)
+   ↓
+4. Structure Validation
+   ↓
+5. sat_revsynth Circuit Creation
+   ↓
+6. Error Handling + Logging
+```
+
+## Key Algorithms
+
+### 1. SAT-Based Circuit Generation
+
+**Algorithm**: Uses `sat_revsynth` library for SAT-based synthesis
+**Input**: Width (qubits), gate_count (gates)
+**Output**: Identity circuit with specified dimensions
+
+**Steps**:
+
+1. Generate random forward circuit using SAT solver
+2. Compute inverse circuit through gate reversal
+3. Combine circuits: forward + inverse = identity
+4. Validate identity property
+5. Store in database with metadata
+
+### 2. Circuit Unrolling
+
+**Algorithm**: Uses `sat_revsynth` unrolling methods
+**Input**: Representative circuit
+**Output**: List of equivalent circuits
+
+**Methods**:
+
+-   `circuit.unroll([])`: Full unrolling space exploration
+-   Swap space BFS: Explores gate swap possibilities
+-   Rotations: Circuit rotation transformations
+-   Permutations: Qubit permutation transformations
+
+### 3. Representative Management
+
+**Algorithm**: Intelligent circuit grouping and selection
+**Input**: Circuits with same (width, gate_count)
+**Output**: Representative circuits for each gate composition
+
+**Process**:
+
+1. Group circuits by gate composition (NOT, CNOT, CCNOT counts)
+2. Select first circuit of each composition as representative
+3. Mark representative with `representative_id = circuit_id`
+4. Store equivalent relationships for other circuits
+
+## Error Handling and Recovery
+
+### Data Corruption Prevention
+
+**Issue**: Malformed gate data in database
+**Solution**: Robust validation in `_record_to_circuit()`
+
+```python
+def _record_to_circuit(self, record: CircuitRecord) -> Circuit:
+    # Validate gate data structure
+    if not isinstance(record.gates, list):
+        raise TypeError(f"Malformed gates for circuit {record.id}")
+
+    # Validate each gate
+    for gate in record.gates:
+        if not (isinstance(gate, (list, tuple)) and len(gate) == 2):
+            raise TypeError(f"Malformed gate data: {gate}")
+```
+
+### Unrolling Error Recovery
+
+**Issue**: Unrolling failures due to corrupted data
+**Solution**: Graceful degradation with error logging
+
+```python
+try:
+    equivalent_circuits = circuit.unroll([])
+except Exception as e:
+    logger.error(f"Unroll failed: {e}")
+    return {"success": False, "equivalents": [], "error": str(e)}
+```
+
+### API Error Handling
+
+**Pattern**: Consistent error responses with detailed logging
+
+```python
+try:
+    result = perform_operation()
+    return {"success": True, "data": result}
+except Exception as e:
+    logger.error(f"Operation failed: {e}")
+    raise HTTPException(status_code=500, detail=str(e))
+```
+
+## Performance Considerations
+
+### Database Optimization
+
+**Indexing Strategy**:
+
+-   Primary keys on all tables
+-   Indexes on frequently queried columns
+-   Composite indexes for complex queries
+
+**Query Optimization**:
+
+-   Use prepared statements
+-   Limit result sets
+-   Efficient JOIN operations
+
+### Memory Management
+
+**Circuit Storage**:
+
+-   JSON serialization for gate data
+-   Efficient data structures
+-   Garbage collection for large operations
+
+**Unrolling Limits**:
+
+-   Configurable `max_equivalents` parameter
+-   Memory monitoring for large operations
+-   Background processing for heavy tasks
+
+### Scalability Considerations
+
+**Horizontal Scaling**:
+
+-   Stateless API design
+-   Database connection pooling
+-   Job queue for background processing
+
+**Vertical Scaling**:
+
+-   Configurable worker processes
+-   Memory-efficient algorithms
+-   Caching strategies
+
+## Security Considerations
+
+### Input Validation
+
+**API Inputs**:
+
+-   Pydantic model validation
+-   Type checking and bounds validation
+-   SQL injection prevention
+
+**Database Operations**:
+
+-   Parameterized queries
+-   Input sanitization
+-   Access control
+
+### Error Information
+
+**Logging Strategy**:
+
+-   Detailed error logging for debugging
+-   Sanitized error messages for users
+-   No sensitive data in logs
+
+## Testing Strategy
+
+### Unit Testing
+
+**Component Testing**:
+
+-   Individual class testing
+-   Mock dependencies
+-   Edge case coverage
+
+**Integration Testing**:
+
+-   API endpoint testing
+-   Database integration testing
+-   End-to-end workflow testing
+
+### Performance Testing
+
+**Load Testing**:
+
+-   Concurrent request handling
+-   Database performance under load
+-   Memory usage monitoring
+
+## Deployment Considerations
+
+### Environment Setup
+
+**Dependencies**:
+
+-   Python 3.8+ required
+-   SQLite3 database
+-   SAT solver dependencies
+
+**Configuration**:
+
+-   Environment variable configuration
+-   Database path configuration
+-   Logging configuration
+
+### Production Deployment
+
+**Server Setup**:
+
+-   FastAPI with uvicorn
+-   Reverse proxy (nginx)
+-   SSL/TLS configuration
+
+**Monitoring**:
+
+-   Application metrics
+-   Database performance
+-   Error tracking
+
+## Future Enhancements
+
+### Planned Features
+
+1. **Advanced Circuit Analysis**:
+
+    - Quantum circuit optimization
+    - Error correction analysis
+    - Performance benchmarking
+
+2. **Enhanced Visualization**:
+
+    - Interactive circuit diagrams
+    - 3D circuit representations
+    - Real-time animation
+
+3. **Machine Learning Integration**:
+    - Circuit complexity prediction
+    - Optimization suggestions
+    - Automated parameter tuning
+
+### Technical Improvements
+
+1. **Performance Optimization**:
+
+    - Parallel processing
+    - Caching strategies
+    - Database optimization
+
+2. **Scalability Enhancements**:
+
+    - Distributed processing
+    - Cloud deployment
+    - Microservices architecture
+
+3. **User Experience**:
+    - Improved web interface
+    - Mobile responsiveness
+    - Advanced search and filtering
 
 ---
 
-## 🚀 Performance Considerations
-
-### Scalability
-
--   **Database**: SQLite with proper indexing for fast queries
--   **Memory**: Efficient circuit representation and caching
--   **Processing**: Background jobs for long-running operations
--   **API**: Async endpoints with proper resource management
-
-### Optimization
-
--   **Caching**: Frequently accessed data is cached
--   **Batching**: Multiple operations are batched when possible
--   **Indexing**: Database indexes on frequently queried columns
--   **Lazy Loading**: Data is loaded only when needed
+This documentation provides a comprehensive technical overview of the ID-Circuit system. For specific implementation details, refer to the individual component files and their inline documentation.

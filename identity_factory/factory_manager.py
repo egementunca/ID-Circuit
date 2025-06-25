@@ -153,7 +153,12 @@ class IdentityFactory:
             logger.info(f"Generating identity circuit ({width}, {gate_count})")
             
             # Step 1: Generate seed circuit
-            seed_result = self.seed_generator.generate_seed(width, gate_count, **kwargs)
+            # Filter kwargs to only include parameters that generate_seed accepts
+            seed_kwargs = {
+                k: v for k, v in kwargs.items() 
+                if k in ['max_attempts', 'sequential']
+            }
+            seed_result = self.seed_generator.generate_seed(width, gate_count, **seed_kwargs)
             result['seed_generation'] = seed_result
             
             if not seed_result.success:
