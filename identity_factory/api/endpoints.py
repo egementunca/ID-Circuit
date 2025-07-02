@@ -48,7 +48,7 @@ def get_seed_generator() -> SeedGenerator:
     return _seed_generator
 
 # Create router
-router = APIRouter(tags=["identity-circuits"])
+router = APIRouter()
 
 @router.post("/generate", response_model=GenerationResultResponse)
 async def generate_circuit(
@@ -179,7 +179,7 @@ async def batch_generate(
         logger.error(f"API batch generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/circuits", response_model=PaginatedResponse)
+@router.get("/circuits", response_model=PaginatedResponse) # TODO finish filtering
 async def search_circuits(
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(50, ge=1, le=1000, description="Page size"),
@@ -280,7 +280,7 @@ async def search_circuits(
         logger.error(f"API search circuits failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/circuits/advanced-search", response_model=PaginatedResponse)
+@router.post("/circuits/advanced-search", response_model=PaginatedResponse) # TODO finish filtering
 async def advanced_search_circuits(
     search_request: AdvancedSearchRequest,
     page: int = Query(1, ge=1),

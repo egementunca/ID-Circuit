@@ -90,4 +90,53 @@ export interface HealthStatus {
   version: string;
   database_connected: boolean;
   sat_solver_available: boolean;
+}
+
+// Enhanced Playground types
+export interface PlaygroundGate {
+  id: string;
+  type: 'X' | 'CX' | 'CCX';
+  step: number; // column position in circuit
+  target: number; // target qubit
+  controls: number[]; // control qubits (empty for X gates)
+  isEditing?: boolean; // for control editing mode
+}
+
+export interface PlaygroundCircuit {
+  width: number;
+  length: number; // number of steps/columns
+  gates: PlaygroundGate[];
+}
+
+export interface LiveMetrics {
+  gateCount: number;
+  gateComposition: [number, number, number]; // [NOT, CNOT, CCNOT]
+  depth: number;
+  isIdentity: boolean;
+  permutation?: number[];
+  complexityWalk?: number[];
+  qubitConnectivity: number;
+  hamming_distance?: number;
+}
+
+// Drag and drop types
+export interface DragItem {
+  type: 'NEW_GATE' | 'EXISTING_GATE' | 'CONTROL_WIRE';
+  gateType?: 'X' | 'CX' | 'CCX';
+  gateId?: string;
+  sourceQubit?: number;
+  sourceStep?: number;
+}
+
+export interface DropTarget {
+  step: number;
+  qubit: number;
+  isValidDrop: boolean;
+}
+
+export interface GatePlacement {
+  step: number;
+  target: number;
+  controls: number[];
+  suggestedQubits?: number[]; // for smart placement
 } 

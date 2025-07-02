@@ -185,12 +185,6 @@ def create_app(
     @app.get("/", include_in_schema=False)
     async def root():
         return FileResponse('frontend.html')
-
-    # Health check endpoint (outside API versioning)
-    @app.get("/health")
-    async def health():
-        """Simple health check."""
-        return {"status": "healthy", "version": version}
     
     # API info endpoint
     @app.get("/api/info")
