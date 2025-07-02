@@ -1,5 +1,5 @@
 from sat_revsynth.sat.solver import Solver
-from synthesizers.circuit_synthesizer import CircuitSynthesizer
+from sat_revsynth.synthesizers.circuit_synthesizer import CircuitSynthesizer
 from sat_revsynth.truth_table.truth_table import TruthTable
 from sat_revsynth.circuit.circuit import Circuit
 from sat_revsynth.circuit.dim_group import DimGroup
@@ -16,7 +16,7 @@ class PartialSynthesizer:
             solver=Solver("kissat")
         )
         #self._synthesizer.disable_empty_lines() Turned off to get more solutions
-        self._synthesizer.disable_full_control_lines()
+        #self._synthesizer.disable_full_control_lines()
 
     def synthesize(self) -> DimGroup:
         circuit = self._synthesizer.solve()

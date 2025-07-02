@@ -2,7 +2,7 @@ from sat_revsynth.circuit.circuit import Circuit
 from sat_revsynth.circuit.collection import Collection
 from sat_revsynth.truth_table.truth_table import TruthTable
 from sat_revsynth.sat.solver import Solver
-from synthesizers.circuit_synthesizer import CircuitSynthesizer
+from sat_revsynth.synthesizers.circuit_synthesizer import CircuitSynthesizer
 
 
 class OptimalSynthesizer:

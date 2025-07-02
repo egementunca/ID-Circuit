@@ -88,9 +88,27 @@ class IdentityFactory:
     
     def _setup_logging(self):
         """Set up logging configuration."""
-        level = getattr(logging, self.config.log_level.upper())
-        logging.basicConfig(level=level)
-        logger.setLevel(level)
+        # Set more detailed logging for debugging circuit generation issues
+        log_level = getattr(logging, self.config.log_level.upper(), logging.INFO)
+        
+        # For debugging circuit generation, we want to see debug messages
+        if self.config.log_level.upper() == "DEBUG":
+            log_level = logging.DEBUG
+        
+        logging.basicConfig(
+            level=log_level,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            force=True  # Override any existing logging configuration
+        )
+        
+        # Make sure our specific modules show debug messages when needed
+        if log_level == logging.DEBUG:
+            logging.getLogger('identity_factory.seed_generator').setLevel(logging.DEBUG)
+            logging.getLogger('identity_factory.database').setLevel(logging.DEBUG)
+            logging.getLogger('identity_factory.unroller').setLevel(logging.DEBUG)
+            
+        logger.info(f"Logging set up with level: {self.config.log_level}")
+        logger.info(f"Debug logging enabled for circuit generation debugging")
     
     def _register_job_handlers(self):
         """Register job handlers with the job queue."""
@@ -105,8 +123,15 @@ class IdentityFactory:
         """Handle seed generation job."""
         width = params['width']
         gate_count = params['gate_count']
-        result = self.seed_generator.generate_seed(width, gate_count)
-        return result.__dict__
+        # Map legacy 'sequential' -> 'enforce_double_length' if provided
+        seed_kwargs = {}
+        if 'max_attempts' in params:
+            seed_kwargs['max_attempts'] = params['max_attempts']
+        if 'enforce_double_length' in params:
+            seed_kwargs['enforce_double_length'] = params['enforce_double_length']
+        # Ignore obsolete 'sequential' parameter silently for backward compatibility
+        seed_result = self.seed_generator.generate_seed(width, gate_count, **seed_kwargs)
+        return seed_result.__dict__
     
     async def start_job_queue(self):
         """Start the job queue workers."""
@@ -156,7 +181,7 @@ class IdentityFactory:
             # Filter kwargs to only include parameters that generate_seed accepts
             seed_kwargs = {
                 k: v for k, v in kwargs.items() 
-                if k in ['max_attempts', 'sequential']
+                if k in ['max_attempts', 'enforce_double_length']
             }
             seed_result = self.seed_generator.generate_seed(width, gate_count, **seed_kwargs)
             result['seed_generation'] = seed_result
@@ -451,4 +476,21 @@ class IdentityFactory:
         for gate_count in range(2, max_gate_count + 1, 2):
             recommendations.append((target_width, gate_count))
         
-        return recommendations[:10]  # Limit to 10 recommendations 
+        return recommendations[:10]  # Limit to 10 recommendations
+    
+    def enable_debug_logging(self):
+        """Enable debug logging for troubleshooting circuit generation issues."""
+        logging.getLogger().setLevel(logging.DEBUG)
+        logging.getLogger('identity_factory.seed_generator').setLevel(logging.DEBUG)
+        logging.getLogger('identity_factory.database').setLevel(logging.DEBUG)
+        logging.getLogger('identity_factory.unroller').setLevel(logging.DEBUG)
+        logger.info("🔍 Debug logging enabled for troubleshooting")
+    
+    def disable_debug_logging(self):
+        """Restore normal logging level."""
+        log_level = getattr(logging, self.config.log_level.upper(), logging.INFO)
+        logging.getLogger().setLevel(log_level)
+        logging.getLogger('identity_factory.seed_generator').setLevel(log_level)
+        logging.getLogger('identity_factory.database').setLevel(log_level)
+        logging.getLogger('identity_factory.unroller').setLevel(log_level)
+        logger.info("📝 Normal logging level restored") 

@@ -1,6 +1,6 @@
 """
 API endpoints for the Identity Circuit Factory.
-Provides REST API for generating, retrieving, and managing identity circuits.
+Updated for simplified structure focusing on seed generation.
 """
 
 import logging
@@ -9,30 +9,43 @@ from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 import asyncio
 import json
+import time
+from datetime import datetime
 
 from .models import (
     CircuitRequest, GenerationResultResponse, 
     DimGroupResponse, CircuitResponse,
-    FactoryStatsResponse, DimGroupAnalysisResponse,
-    BatchCircuitRequest, UnrollResultResponse,
-    RepresentativeCircuitResponse, CircuitASCIIRepresentation,
-    EnhancedCircuitDetailsResponse
+    FactoryStatsResponse, 
+    BatchCircuitRequest, 
+    BatchGenerationResultResponse, CircuitVisualizationResponse,
+    GenerationStatsResponse, CircuitsByCompositionResponse,
+    HealthResponse, ErrorResponse, SearchParams, PaginatedResponse,
+    AdvancedSearchRequest
 )
 from ..factory_manager import IdentityFactory, FactoryConfig
 from ..database import CircuitDatabase
+from ..seed_generator import SeedGenerator
 
 logger = logging.getLogger(__name__)
 
-# Global factory instance
-_factory: Optional[IdentityFactory] = None
+# Global instances
+_database: Optional[CircuitDatabase] = None
+_seed_generator: Optional[SeedGenerator] = None
 
-def get_factory() -> IdentityFactory:
-    """Get or create the global factory instance."""
-    global _factory
-    if _factory is None:
-        config = FactoryConfig()
-        _factory = IdentityFactory(config)
-    return _factory
+def get_database() -> CircuitDatabase:
+    """Get or create the global database instance."""
+    global _database
+    if _database is None:
+        _database = CircuitDatabase()
+    return _database
+
+def get_seed_generator() -> SeedGenerator:
+    """Get or create the global seed generator instance."""
+    global _seed_generator
+    if _seed_generator is None:
+        database = get_database()
+        _seed_generator = SeedGenerator(database)
+    return _seed_generator
 
 # Create router
 router = APIRouter(tags=["identity-circuits"])
@@ -40,69 +53,46 @@ router = APIRouter(tags=["identity-circuits"])
 @router.post("/generate", response_model=GenerationResultResponse)
 async def generate_circuit(
     request: CircuitRequest,
-    background_tasks: BackgroundTasks,
-    factory: IdentityFactory = Depends(get_factory)
+    database: CircuitDatabase = Depends(get_database),
+    seed_generator: SeedGenerator = Depends(get_seed_generator)
 ) -> GenerationResultResponse:
     """
     Generate an identity circuit for specified dimensions.
     
     Args:
         request: Generation parameters
-        background_tasks: FastAPI background tasks
-        factory: Factory instance
+        database: Database instance
+        seed_generator: Seed generator instance
         
     Returns:
         Generation result with circuit information
     """
     try:
-        logger.info(f"API: Generating circuit ({request.width}, {request.gate_count})")
+        logger.info(f"API: Generating circuit (width={request.width}, forward_length={request.forward_length})")
         
-        # Generate circuit
-        result = factory.generate_identity_circuit(
+        # Generate circuit using simplified seed generator
+        result = seed_generator.generate_seed(
             width=request.width,
-            gate_count=request.gate_count,
-            enable_unrolling=request.enable_unrolling,
-            enable_post_processing=request.enable_post_processing,
-            enable_debris_analysis=request.enable_debris_analysis,
-            enable_ml_analysis=request.enable_ml_analysis,
-            use_job_queue=request.use_job_queue,
-            sequential=request.sequential
+            forward_length=request.forward_length,
+            max_attempts=request.max_attempts or 10
         )
         
-        if not result['success']:
+        if not result.success:
             raise HTTPException(
                 status_code=500, 
-                detail=f"Generation failed: {result.get('error', 'Unknown error')}"
+                detail=f"Generation failed: {result.error_message}"
             )
-        
-        # Extract key information
-        seed_result = result.get('seed_generation')
-        circuit_id = seed_result.circuit_id if seed_result else None
-        dim_group_id = seed_result.dim_group_id if seed_result else None
-        representative_id = getattr(seed_result, 'representative_id', None) if seed_result else None
-        
-        # If dimension group ID is still None, try to get it from the circuit
-        if circuit_id and not dim_group_id:
-            try:
-                circuit = factory.db.get_circuit(circuit_id)
-                if circuit:
-                    dim_group_id = circuit.dim_group_id
-            except Exception as e:
-                logger.warning(f"Could not get dimension group from circuit {circuit_id}: {e}")
-        
-        # Get equivalents count
-        equivalents_count = 0
-        if 'unrolling' in result and isinstance(result['unrolling'], dict):
-            equivalents_count = result['unrolling'].get('total_equivalents', 0)
         
         return GenerationResultResponse(
             success=True,
-            width=request.width,
-            length=request.gate_count,
-            seed_circuit_id=circuit_id,
-            dim_group_id=dim_group_id,
-            total_equivalents=equivalents_count,
-            total_time=result.get('total_time', 0.0)
+            circuit_id=result.circuit_id,
+            dim_group_id=result.dim_group_id,
+            forward_gates=result.forward_gates,
+            inverse_gates=result.inverse_gates,
+            identity_gates=result.identity_gates,
+            gate_composition=result.gate_composition,
+            total_time=result.metrics.get('generation_time', 0.0) if result.metrics else 0.0,
+            metrics=result.metrics
         )
         
     except HTTPException:
@@ -111,12 +101,277 @@ async def generate_circuit(
         logger.error(f"API generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/batch-generate", response_model=BatchGenerationResultResponse)
+async def batch_generate(
+    request: BatchCircuitRequest,
+    background_tasks: BackgroundTasks,
+    database: CircuitDatabase = Depends(get_database),
+    seed_generator: SeedGenerator = Depends(get_seed_generator)
+) -> BatchGenerationResultResponse:
+    """
+    Generate multiple circuits for different dimensions.
+    
+    Args:
+        request: Batch generation parameters
+        background_tasks: FastAPI background tasks
+        database: Database instance
+        seed_generator: Seed generator instance
+        
+    Returns:
+        Batch generation results
+    """
+    try:
+        logger.info(f"API: Batch generating {len(request.dimensions)} circuits")
+        start_time = time.time()
+        
+        results = []
+        successful = 0
+        failed = 0
+        
+        for width, forward_length in request.dimensions:
+            try:
+                result = seed_generator.generate_seed(
+                    width=width,
+                    forward_length=forward_length,
+                    max_attempts=request.max_attempts or 10
+                )
+                
+                generation_result = GenerationResultResponse(
+                    success=result.success,
+                    circuit_id=result.circuit_id,
+                    dim_group_id=result.dim_group_id,
+                    forward_gates=result.forward_gates,
+                    inverse_gates=result.inverse_gates,
+                    identity_gates=result.identity_gates,
+                    gate_composition=result.gate_composition,
+                    total_time=result.metrics.get('generation_time', 0.0) if result.metrics else 0.0,
+                    error_message=result.error_message,
+                    metrics=result.metrics
+                )
+                
+                results.append(generation_result)
+                
+                if result.success:
+                    successful += 1
+                else:
+                    failed += 1
+                    
+            except Exception as e:
+                logger.error(f"Failed to generate circuit for ({width}, {forward_length}): {e}")
+                results.append(GenerationResultResponse(
+                    success=False,
+                    total_time=0.0,
+                    error_message=str(e)
+                ))
+                failed += 1
+        
+        total_time = time.time() - start_time
+        
+        return BatchGenerationResultResponse(
+            total_requested=len(request.dimensions),
+            successful_generations=successful,
+            failed_generations=failed,
+            results=results,
+            total_time=total_time
+        )
+        
+    except Exception as e:
+        logger.error(f"API batch generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/circuits", response_model=PaginatedResponse)
+async def search_circuits(
+    page: int = Query(1, ge=1, description="Page number"),
+    size: int = Query(50, ge=1, le=1000, description="Page size"),
+    width: Optional[int] = Query(None, ge=1, le=10, description="Filter by width"),
+    gate_count: Optional[int] = Query(None, ge=1, le=100, description="Filter by gate count"),
+    is_representative: Optional[bool] = Query(None, description="Filter by representative status"),
+    gate_composition: Optional[str] = Query(None, description="Filter by gate composition (e.g., '2,1,0')"),
+    sort_by: Optional[str] = Query("id", description="Sort field"),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$", description="Sort order"),
+    database: CircuitDatabase = Depends(get_database)
+) -> PaginatedResponse:
+    """
+    Search circuits with comprehensive filtering and pagination.
+    
+    Args:
+        page: Page number
+        size: Page size
+        width: Filter by circuit width
+        gate_count: Filter by gate count
+        is_representative: Filter by representative status
+        gate_composition: Filter by gate composition (format: "x,cx,ccx")
+        sort_by: Sort field
+        sort_order: Sort order (asc/desc)
+        database: Database instance
+        
+    Returns:
+        Paginated circuit results
+    """
+    try:
+        # Parse gate composition filter if provided
+        composition_filter = None
+        if gate_composition:
+            try:
+                parts = gate_composition.split(',')
+                if len(parts) == 3:
+                    composition_filter = tuple(int(p) for p in parts)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid gate composition format. Use 'x,cx,ccx'")
+        
+        # Get all circuits (we'll implement proper filtering later)
+        all_circuits = database.get_all_circuits()
+        
+        # Apply filters
+        filtered_circuits = []
+        for circuit in all_circuits:
+            # Width filter
+            if width is not None and circuit.width != width:
+                continue
+            
+            # Gate count filter
+            if gate_count is not None and circuit.gate_count != gate_count:
+                continue
+            
+            # Representative status filter
+            if is_representative is not None:
+                circuit_is_rep = (circuit.representative_id == circuit.id)
+                if is_representative != circuit_is_rep:
+                    continue
+            
+            # Gate composition filter
+            if composition_filter is not None:
+                circuit_comp = circuit.get_gate_composition()
+                if circuit_comp != composition_filter:
+                    continue
+            
+            filtered_circuits.append(circuit)
+        
+        # Sort circuits
+        reverse = (sort_order == "desc")
+        if sort_by == "id":
+            filtered_circuits.sort(key=lambda c: c.id, reverse=reverse)
+        elif sort_by == "width":
+            filtered_circuits.sort(key=lambda c: c.width, reverse=reverse)
+        elif sort_by == "gate_count":
+            filtered_circuits.sort(key=lambda c: c.gate_count, reverse=reverse)
+        
+        # Calculate pagination
+        total = len(filtered_circuits)
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        
+        page_circuits = filtered_circuits[start_idx:end_idx]
+        
+        # Convert to response format
+        circuit_responses = [CircuitResponse.from_circuit_record(c) for c in page_circuits]
+        
+        return PaginatedResponse(
+            items=circuit_responses,
+            total=total,
+            page=page,
+            size=size,
+            pages=(total + size - 1) // size
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"API search circuits failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/circuits/advanced-search", response_model=PaginatedResponse)
+async def advanced_search_circuits(
+    search_request: AdvancedSearchRequest,
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=1000),
+    database: CircuitDatabase = Depends(get_database)
+) -> PaginatedResponse:
+    """
+    Advanced circuit search with complex filtering.
+    
+    Args:
+        search_request: Advanced search parameters
+        page: Page number
+        size: Page size
+        database: Database instance
+        
+    Returns:
+        Paginated search results
+    """
+    try:
+        all_circuits = database.get_all_circuits()
+        
+        # Apply advanced filters
+        filtered_circuits = []
+        for circuit in all_circuits:
+            # Width range filter
+            if search_request.width_range:
+                min_w, max_w = search_request.width_range
+                if not (min_w <= circuit.width <= max_w):
+                    continue
+            
+            # Gate count range filter
+            if search_request.gate_count_range:
+                min_gc, max_gc = search_request.gate_count_range
+                if not (min_gc <= circuit.gate_count <= max_gc):
+                    continue
+            
+            # Has equivalents filter
+            if search_request.has_equivalents is not None:
+                has_equiv = any(c.representative_id == circuit.id and c.id != circuit.id 
+                              for c in all_circuits)
+                if search_request.has_equivalents != has_equiv:
+                    continue
+            
+            # Gate types filter
+            if search_request.gate_types:
+                circuit_gate_types = set(gate[0] for gate in circuit.gates)
+                required_types = set(search_request.gate_types)
+                if not required_types.issubset(circuit_gate_types):
+                    continue
+            
+            # Gate composition filters
+            composition = circuit.get_gate_composition()
+            
+            if search_request.min_composition:
+                min_x, min_cx, min_ccx = search_request.min_composition
+                if not (composition[0] >= min_x and composition[1] >= min_cx and composition[2] >= min_ccx):
+                    continue
+            
+            if search_request.max_composition:
+                max_x, max_cx, max_ccx = search_request.max_composition
+                if not (composition[0] <= max_x and composition[1] <= max_cx and composition[2] <= max_ccx):
+                    continue
+            
+            filtered_circuits.append(circuit)
+        
+        # Pagination
+        total = len(filtered_circuits)
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        
+        page_circuits = filtered_circuits[start_idx:end_idx]
+        circuit_responses = [CircuitResponse.from_circuit_record(c) for c in page_circuits]
+        
+        return PaginatedResponse(
+            items=circuit_responses,
+            total=total,
+            page=page,
+            size=size,
+            pages=(total + size - 1) // size
+        )
+        
+    except Exception as e:
+        logger.error(f"API advanced search failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/dim-groups", response_model=List[DimGroupResponse])
 async def list_dimension_groups(
     width: Optional[int] = Query(None, description="Filter by width"),
-    length: Optional[int] = Query(None, description="Filter by gate count"),
+    gate_count: Optional[int] = Query(None, description="Filter by gate count"),
     processed_only: bool = Query(False, description="Only processed groups"),
-    factory: IdentityFactory = Depends(get_factory)
+    database: CircuitDatabase = Depends(get_database)
 ) -> List[DimGroupResponse]:
     """
     List dimension groups with optional filtering.
@@ -125,22 +380,20 @@ async def list_dimension_groups(
         width: Optional width filter
         gate_count: Optional gate count filter
         processed_only: Only return processed groups
-        factory: Factory instance
+        database: Database instance
         
     Returns:
         List of dimension groups
     """
     try:
-        db = factory.db
-        
         # Get dimension groups with filtering
-        if width and length:
-            dim_group = db.get_dim_group(width, length)
+        if width and gate_count:
+            dim_group = database.get_dim_group(width, gate_count)
             dim_groups = [dim_group] if dim_group else []
         elif width:
-            dim_groups = [dg for dg in db.get_all_dim_groups() if dg.width == width]
+            dim_groups = [dg for dg in database.get_all_dim_groups() if dg.width == width]
         else:
-            dim_groups = db.get_all_dim_groups()
+            dim_groups = database.get_all_dim_groups()
         
         # Filter processed if requested
         if processed_only:
@@ -149,19 +402,17 @@ async def list_dimension_groups(
         # Convert to response format
         responses = []
         for dg in dim_groups:
-            # Get true representatives (only those that are still representatives)
-            representatives = db.get_true_representatives_for_dim_group(dg.id)
-            
-            # Get equivalents count
-            equivalents = db.get_all_equivalents_for_dim_group(dg.id)
+            # Get representatives and equivalents counts
+            all_circuits = database.get_circuits_in_dim_group(dg.id)
+            representatives = [c for c in all_circuits if c.representative_id == c.id]
             
             responses.append(DimGroupResponse(
                 id=dg.id,
                 width=dg.width,
-                length=dg.gate_count,
+                gate_count=dg.gate_count,
                 circuit_count=dg.circuit_count,
-                is_processed=dg.is_processed,
-                total_equivalents=len(equivalents)
+                representative_count=len(representatives),
+                is_processed=dg.is_processed
             ))
         
         return responses
@@ -170,42 +421,38 @@ async def list_dimension_groups(
         logger.error(f"API list dimension groups failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dimension-groups/{dim_group_id}", response_model=DimGroupResponse)
+@router.get("/dim-groups/{dim_group_id}", response_model=DimGroupResponse)
 async def get_dimension_group(
     dim_group_id: int,
-    factory: IdentityFactory = Depends(get_factory)
+    database: CircuitDatabase = Depends(get_database)
 ) -> DimGroupResponse:
     """
     Get detailed information about a specific dimension group.
     
     Args:
         dim_group_id: Dimension group ID
-        factory: Factory instance
+        database: Database instance
         
     Returns:
         Dimension group details
     """
     try:
-        db = factory.db
-        
         # Get dimension group
-        dim_group = db.get_dim_group_by_id(dim_group_id)
+        dim_group = database.get_dim_group_by_id(dim_group_id)
         if not dim_group:
             raise HTTPException(status_code=404, detail="Dimension group not found")
         
-        # Get representatives
-        representatives = db.get_representatives_for_dim_group(dim_group_id)
-        
-        # Get equivalents
-        equivalents = db.get_all_equivalents_for_dim_group(dim_group_id)
+        # Get circuit counts
+        all_circuits = database.get_circuits_in_dim_group(dim_group_id)
+        representatives = [c for c in all_circuits if c.representative_id == c.id]
         
         return DimGroupResponse(
             id=dim_group.id,
             width=dim_group.width,
-            length=dim_group.gate_count,
+            gate_count=dim_group.gate_count,
             circuit_count=dim_group.circuit_count,
-            is_processed=dim_group.is_processed,
-            total_equivalents=len(equivalents)
+            representative_count=len(representatives),
+            is_processed=dim_group.is_processed
         )
         
     except HTTPException:
@@ -217,33 +464,24 @@ async def get_dimension_group(
 @router.get("/circuits/{circuit_id}", response_model=CircuitResponse)
 async def get_circuit(
     circuit_id: int,
-    factory: IdentityFactory = Depends(get_factory)
+    database: CircuitDatabase = Depends(get_database)
 ) -> CircuitResponse:
     """
     Get detailed information about a specific circuit.
     
     Args:
         circuit_id: Circuit ID
-        factory: Factory instance
+        database: Database instance
         
     Returns:
         Circuit details
     """
     try:
-        db = factory.db
-        
-        # Get circuit
-        circuit = db.get_circuit(circuit_id)
+        circuit = database.get_circuit(circuit_id)
         if not circuit:
             raise HTTPException(status_code=404, detail="Circuit not found")
         
-        return CircuitResponse(
-            id=circuit.id,
-            width=circuit.width,
-            length=circuit.gate_count,
-            gates=circuit.gates,
-            permutation=circuit.permutation
-        )
+        return CircuitResponse.from_circuit_record(circuit)
         
     except HTTPException:
         raise
@@ -251,1131 +489,284 @@ async def get_circuit(
         logger.error(f"API get circuit failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dim-groups/{dim_group_id}/representatives")
-async def get_representatives_for_dim_group(
+@router.get("/dim-groups/{dim_group_id}/circuits", response_model=List[CircuitResponse])
+async def list_circuits_in_dim_group(
     dim_group_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-) -> List[RepresentativeCircuitResponse]:
+    representatives_only: bool = Query(False, description="Only return representative circuits"),
+    database: CircuitDatabase = Depends(get_database)
+) -> List[CircuitResponse]:
     """
-    Get all representative circuits for a dimension group, grouped by gate composition.
+    List circuits in a dimension group.
     
     Args:
         dim_group_id: Dimension group ID
-        factory: Factory instance
+        representatives_only: Whether to return only representatives
+        database: Database instance
         
     Returns:
-        List of representative circuits with their details, one per unique gate composition
+        List of circuits
     """
     try:
-        import sqlite3
-        db = factory.db
+        if representatives_only:
+            circuits = database.get_representatives_in_dim_group(dim_group_id)
+        else:
+            circuits = database.get_circuits_in_dim_group(dim_group_id)
         
-        # Check if dimension group exists
-        dim_group = db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
+        return [CircuitResponse.from_circuit_record(circuit) for circuit in circuits]
         
-        # Get unique gate compositions and their representative counts
-        with sqlite3.connect(db.db_path) as conn:
-            cursor = conn.execute("""
-                SELECT r.gate_composition, 
-                       COUNT(DISTINCT r.circuit_id) as composition_count,
-                       MIN(r.circuit_id) as primary_circuit_id
-                FROM representatives r
-                JOIN circuits c ON r.circuit_id = c.id
-                WHERE r.dim_group_id = ? AND c.representative_id = c.id
-                GROUP BY r.gate_composition
-                ORDER BY primary_circuit_id
-            """, (dim_group_id,))
-            
-            result = []
-            for row in cursor.fetchall():
-                gate_composition_json, composition_count, primary_circuit_id = row
-                gate_composition = json.loads(gate_composition_json)
-                
-                # Get the primary circuit details
-                circuit = db.get_circuit(primary_circuit_id)
-                if circuit:
-                    # Calculate total equivalents for this composition
-                    equiv_cursor = conn.execute("""
-                        SELECT COUNT(*) FROM circuits c
-                        JOIN representatives r ON c.representative_id = r.circuit_id
-                        WHERE r.dim_group_id = ? AND r.gate_composition = ? AND c.representative_id != c.id
-                    """, (dim_group_id, gate_composition_json))
-                    total_equivalents = equiv_cursor.fetchone()[0]
-                    
-                    # Get the representative record to check if it's fully unrolled
-                    rep_cursor = conn.execute("""
-                        SELECT fully_unrolled FROM representatives 
-                        WHERE dim_group_id = ? AND circuit_id = ? AND gate_composition = ?
-                    """, (dim_group_id, primary_circuit_id, gate_composition_json))
-                    rep_row = rep_cursor.fetchone()
-                    fully_unrolled = bool(rep_row[0]) if rep_row else False
-                    
-                    result.append(RepresentativeCircuitResponse(
-                        circuit=CircuitResponse(
-                            id=circuit.id,
-                            width=circuit.width,
-                            length=circuit.gate_count,
-                            gates=circuit.gates,
-                            permutation=circuit.permutation
-                        ),
-                        gate_composition=tuple(gate_composition),
-                        composition_count=composition_count,
-                        total_equivalents=total_equivalents,
-                        fully_unrolled=fully_unrolled
-                    ))
-        
-        return result
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"API get representatives failed: {e}")
+        logger.error(f"API list circuits in dim group failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def _calculate_gate_composition(gates: List[Tuple]) -> Tuple[int, int, int]:
-    """Calculate gate composition (NOT, CNOT, CCNOT counts)."""
-    not_count = cnot_count = ccnot_count = 0
-    
-    for gate in gates:
-        controls, target = gate
-        control_count = len(controls)
-        if control_count == 0:
-            not_count += 1
-        elif control_count == 1:
-            cnot_count += 1
-        elif control_count == 2:
-            ccnot_count += 1
-    
-    return (not_count, cnot_count, ccnot_count)
-
-@router.get("/dim-groups/{dim_group_id}/compositions/{composition}/circuits")
+@router.get("/dim-groups/{dim_group_id}/compositions", response_model=List[CircuitsByCompositionResponse])
 async def get_circuits_by_composition(
     dim_group_id: int,
-    composition: str,
-    factory: IdentityFactory = Depends(get_factory)
-) -> List[CircuitResponse]:
+    database: CircuitDatabase = Depends(get_database)
+) -> List[CircuitsByCompositionResponse]:
     """
-    Get representative circuits for a specific gate composition within a dimension group.
-    Only shows circuits that are representatives (representative_id == circuit_id).
+    Get circuits grouped by gate composition within a dimension group.
     
     Args:
         dim_group_id: Dimension group ID
-        composition: Gate composition as "NOT,CNOT,CCNOT" (e.g., "8,6,4")
-        factory: Factory instance
+        database: Database instance
         
     Returns:
-        List of representative circuits with the specified gate composition
+        Circuits grouped by gate composition
     """
     try:
-        import sqlite3
-        db = factory.db
+        all_circuits = database.get_circuits_in_dim_group(dim_group_id)
         
-        # Parse the composition
-        try:
-            not_count, cnot_count, ccnot_count = map(int, composition.split(','))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid composition format. Expected 'NOT,CNOT,CCNOT'")
+        # Group circuits by gate composition
+        compositions = {}
+        for circuit in all_circuits:
+            comp = circuit.get_gate_composition()
+            if comp not in compositions:
+                compositions[comp] = []
+            compositions[comp].append(circuit)
         
-        gate_composition = [not_count, cnot_count, ccnot_count]
+        # Convert to response format
+        responses = []
+        for comp, circuits in compositions.items():
+            responses.append(CircuitsByCompositionResponse(
+                gate_composition=comp,
+                circuits=[CircuitResponse.from_circuit_record(c) for c in circuits],
+                total_count=len(circuits)
+            ))
         
-        with sqlite3.connect(db.db_path) as conn:
-            # Get circuits that are representatives with this composition, including fully_unrolled status
-            cursor = conn.execute("""
-                SELECT DISTINCT c.id, c.width, c.gate_count, c.gates, c.permutation, 
-                       c.complexity_walk, c.circuit_hash, c.representative_id, r.fully_unrolled
-                FROM circuits c
-                JOIN dim_group_circuits dgc ON c.id = dgc.circuit_id
-                JOIN representatives r ON c.id = r.circuit_id
-                WHERE dgc.dim_group_id = ? 
-                  AND r.gate_composition = ?
-                  AND c.representative_id = c.id
-                ORDER BY c.id
-            """, (dim_group_id, json.dumps(gate_composition)))
-            
-            circuits = []
-            for row in cursor.fetchall():
-                circuit_id, width, gate_count, gates_json, permutation_json, complexity_walk_json, circuit_hash, representative_id, fully_unrolled = row
-                
-                # Parse JSON fields
-                gates = json.loads(gates_json) if gates_json else []
-                permutation = json.loads(permutation_json) if permutation_json else []
-                complexity_walk = json.loads(complexity_walk_json) if complexity_walk_json else None
-                
-                circuits.append(CircuitResponse(
-                    id=circuit_id,
-                    width=width,
-                    length=gate_count,
-                    gates=gates,
-                    permutation=permutation,
-                    complexity_walk=complexity_walk,
-                    circuit_hash=circuit_hash,
-                    is_representative=True,  # All circuits in this view are representatives
-                    representative_id=representative_id,
-                    fully_unrolled=bool(fully_unrolled)
-                ))
-            
-            return circuits
-            
+        return responses
+        
     except Exception as e:
-        logger.error(f"Error fetching circuits by composition: {e}")
-        raise HTTPException(status_code=500, detail=f"Error fetching circuits: {str(e)}")
-
-@router.post("/circuits/{circuit_id}/unroll")
-async def unroll_circuit(
-    circuit_id: int,
-    max_equivalents: Optional[int] = Query(100, description="Maximum equivalents to generate"),
-    check_existing: bool = Query(True, description="Check and merge existing sub-seeds"),
-    factory: IdentityFactory = Depends(get_factory)
-) -> Dict[str, Any]:
-    """
-    Unroll a circuit to generate equivalents and manage sub-seed relationships.
-    
-    Args:
-        circuit_id: Circuit ID to unroll
-        max_equivalents: Maximum number of equivalents to generate
-        check_existing: Whether to check and merge existing sub-seeds
-        factory: Factory instance
-        
-    Returns:
-        Unroll results with equivalents and merged sub-seeds
-    """
-    try:
-        db = factory.db
-        
-        # Get the circuit to unroll
-        circuit = db.get_circuit(circuit_id)
-        if not circuit:
-            raise HTTPException(status_code=404, detail="Circuit not found")
-        
-        logger.info(f"API: Unrolling circuit {circuit_id} (max_equivalents={max_equivalents})")
-        
-        # Now that CircuitRecord has dim_group_id, we can access it directly
-        dim_group_id = circuit.dim_group_id
-        if not dim_group_id:
-            raise HTTPException(status_code=404, detail="Circuit not associated with any dimension group")
-        
-        dim_group = db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
-        
-        # Perform the unroll operation
-        unroll_result = await _perform_circuit_unroll(
-            factory, circuit, dim_group_id, max_equivalents, check_existing
-        )
-        
-        return {
-            "success": True,
-            "circuit_id": circuit_id,
-            "dim_group_id": dim_group_id,
-            "equivalents_generated": unroll_result["equivalents_count"],
-            "sub_seeds_merged": unroll_result["merged_count"],
-            "new_representative_id": unroll_result.get("representative_id", circuit_id),
-            "total_time": unroll_result["total_time"],
-            "message": unroll_result["message"]
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback
-        full_traceback = traceback.format_exc()
-        logger.error(f"API unroll circuit failed: {e}")
-        logger.error(f"Full traceback: {full_traceback}")
-        
-        # Print to console as well for debugging
-        print(f"UNROLL ERROR: {e}")
-        print(f"FULL TRACEBACK:\n{full_traceback}")
-        
+        logger.error(f"API get circuits by composition failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def _perform_circuit_unroll(factory, circuit, dim_group_id: int, max_equivalents: int, check_existing: bool) -> Dict[str, Any]:
-    """
-    Perform the actual unroll operation with sub-seed management.
-    """
-    import time
-    start_time = time.time()
-    
-    db = factory.db
-    unroller = factory.unroller
-    
-    # Step 1: Generate equivalents for the circuit
-    logger.info(f"Generating equivalents for circuit {circuit.id}")
-    logger.debug(f"About to call unroller.unroll_circuit with circuit {circuit}")
-    logger.debug(f"Unroller type: {type(unroller)}")
-    logger.debug(f"Circuit type: {type(circuit)}")
-    logger.debug(f"Has dim_group_id attr: {hasattr(circuit, 'dim_group_id')}")
-    try:
-        unroll_results = unroller.unroll_circuit(circuit, max_equivalents=max_equivalents)
-        logger.debug(f"Unroll results: {unroll_results}")
-        equivalents = unroll_results.get('equivalents', [])
-        logger.info(f"Generated {len(equivalents)} equivalents")
-    except Exception as e:
-        logger.error(f"Unroll generation failed: {e}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
-        return {
-            "equivalents_count": 0,
-            "merged_count": 0,
-            "total_time": time.time() - start_time,
-            "message": f"Unroll failed: {str(e)}"
-        }
-    
-    merged_count = 0
-    
-    if check_existing and equivalents:
-        # Step 2: Get all circuits in the same dimension group with same gate composition
-        circuit_composition = _calculate_gate_composition(circuit.gates)
-        all_circuits = db.get_circuits_in_dim_group(dim_group_id)
-        
-        # Find potential sub-seeds to check
-        potential_sub_seeds = []
-        for other_circuit in all_circuits:
-            if (other_circuit.id != circuit.id and 
-                _calculate_gate_composition(other_circuit.gates) == circuit_composition):
-                potential_sub_seeds.append(other_circuit)
-        
-        logger.info(f"Found {len(potential_sub_seeds)} potential sub-seeds to check")
-        
-        # Step 3: Check if any equivalents match existing sub-seeds
-        for sub_seed in potential_sub_seeds:
-            for equivalent in equivalents:
-                # Handle different equivalent formats
-                if isinstance(equivalent, dict):
-                    equivalent_gates = equivalent.get('gates', [])
-                elif isinstance(equivalent, list):
-                    equivalent_gates = equivalent
-                else:
-                    # Assume it's the gates directly
-                    equivalent_gates = equivalent
-                
-                if _circuits_are_equivalent(sub_seed.gates, equivalent_gates):
-                    logger.info(f"Sub-seed {sub_seed.id} matches equivalent - converting to equivalent")
-                    # TODO: Fix convert_circuit_to_equivalent to work with circuit IDs
-                    # DISABLED: This was causing sub-seeds to disappear when unrolled
-                    logger.debug(f"Would convert sub-seed {sub_seed.id} to equivalent of {circuit.id}")
-                    merged_count += 1
-                    break
-    
-    # Step 4: Store the generated equivalents in database
-    stored_equivalents = 0
-    for equivalent in equivalents:
-        try:
-            # Extract data from the unroller result structure 
-            if isinstance(equivalent, dict):
-                gates = equivalent.get('gates', [])
-                permutation = equivalent.get('permutation', circuit.permutation)
-            else:
-                # Fallback for other formats
-                gates = equivalent
-                permutation = circuit.permutation
-            
-            # If gates is a dictionary (incorrect format), extract the actual gates
-            if isinstance(gates, dict):
-                permutation = gates.get('permutation', permutation)  # Get permutation from dict if available
-                gates = gates.get('gates', [])  # Extract actual gates from dict
-            
-            # Store as equivalent of the original circuit
-            db.store_equivalent_circuit(
-                original_circuit_id=circuit.id,
-                gates=gates,
-                width=circuit.width,
-                permutation=permutation
-            )
-            stored_equivalents += 1
-        except Exception as e:
-            logger.warning(f"Failed to store equivalent: {e}")
-            logger.debug(f"Equivalent data: {equivalent}")
-    
-    total_time = time.time() - start_time
-    
-    # Step 5: Update circuit as representative if it now has equivalents
-    if stored_equivalents > 0 or merged_count > 0:
-        db.update_circuit_as_representative(circuit.id)
-        logger.info(f"Circuit {circuit.id} updated as representative")
-    
-    message = f"Generated {stored_equivalents} new equivalents, merged {merged_count} existing sub-seeds"
-    
-    return {
-        "equivalents_count": stored_equivalents,
-        "merged_count": merged_count,
-        "representative_id": circuit.id,
-        "total_time": total_time,
-        "message": message
-    }
-
-def _circuits_are_equivalent(gates1: List[Tuple], gates2: List[Tuple]) -> bool:
-    """
-    Check if two circuits are equivalent (same gates in same order).
-    This is a basic implementation - could be enhanced with more sophisticated equivalence checking.
-    """
-    if len(gates1) != len(gates2):
-        return False
-    
-    return gates1 == gates2
-
-@router.get("/circuits/{circuit_id}/equivalents")
-async def get_circuit_equivalents(
+@router.get("/circuits/{circuit_id}/visualization", response_model=CircuitVisualizationResponse)
+async def get_circuit_visualization(
     circuit_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-) -> List[CircuitResponse]:
+    database: CircuitDatabase = Depends(get_database)
+) -> CircuitVisualizationResponse:
     """
-    Get all equivalent circuits for a given circuit.
+    Get visualization data for a circuit.
     
     Args:
         circuit_id: Circuit ID
-        factory: Factory instance
+        database: Database instance
         
     Returns:
-        List of equivalent circuits
+        Circuit visualization data
     """
     try:
-        db = factory.db
-        
-        # Get the circuit
-        circuit = db.get_circuit(circuit_id)
+        circuit = database.get_circuit(circuit_id)
         if not circuit:
             raise HTTPException(status_code=404, detail="Circuit not found")
         
-        # Get equivalents
-        equivalents = db.get_equivalents_for_circuit(circuit_id)
-        
-        result = []
-        for equiv in equivalents:
-            try:
-                # Handle both correct gates format and dictionary format
-                gates = equiv.gates
-                permutation = equiv.permutation
-                
-                # If gates is a dictionary (incorrect format), extract the actual gates
-                if isinstance(gates, dict):
-                    permutation = gates.get('permutation', permutation)  # Get permutation from dict if available
-                    gates = gates.get('gates', [])  # Extract actual gates from dict
-                
-                # Ensure gates is a list
-                if not isinstance(gates, list):
-                    logger.warning(f"Circuit {equiv.id} has invalid gates format: {type(gates)}")
-                    continue
-                
-                # Ensure permutation is a list
-                if not isinstance(permutation, list):
-                    permutation = list(range(equiv.width))
-                
-                circuit_response = CircuitResponse(
-                    id=equiv.id,
-                    width=equiv.width,
-                    length=equiv.gate_count,
-                    gates=gates,
-                    permutation=permutation,
-                    complexity_walk=equiv.complexity_walk,
-                    is_representative=False,
-                    representative_id=equiv.representative_id
-                )
-                result.append(circuit_response)
-                
-            except Exception as e:
-                logger.warning(f"Failed to process equivalent circuit {equiv.id}: {e}")
-                continue
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API get equivalents failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get equivalents: {str(e)}")
-
-@router.get("/circuits/{circuit_id}/ascii")
-async def get_circuit_ascii(
-    circuit_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-) -> CircuitASCIIRepresentation:
-    """
-    Get ASCII representation of a circuit.
-    
-    Args:
-        circuit_id: Circuit ID
-        factory: Factory instance
-        
-    Returns:
-        ASCII diagram of the circuit
-    """
-    try:
-        db = factory.db
-        
-        # Get circuit
-        circuit = db.get_circuit(circuit_id)
-        if not circuit:
-            raise HTTPException(status_code=404, detail="Circuit not found")
-        
-        # Generate ASCII representation
-        diagram = _generate_ascii_diagram(circuit.gates, circuit.width)
-        
-        return CircuitASCIIRepresentation(
-            circuit_id=circuit_id,
-            diagram=diagram
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API get circuit ASCII failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-def _generate_ascii_diagram(gates: List[Tuple], width: int) -> str:
-    """Generate ASCII diagram for a circuit."""
-    lines = []
-    
-    # Initialize qubit lines
-    for i in range(width):
-        lines.append(f"q{i}: ───")
-    
-    # Add gates
-    for gate_idx, gate in enumerate(gates):
-        try:
-            # Handle different gate formats safely
-            if isinstance(gate, dict):
-                # Skip dictionary gates that can't be visualized
-                continue
-            elif isinstance(gate, list) and len(gate) == 2:
-                controls, target = gate
-                # Ensure controls is a list
-                if not isinstance(controls, list):
-                    continue
-            else:
-                # Skip malformed gates
-                continue
-            
-            # Add spacing
-            for i in range(width):
-                lines[i] += "─"
-            
-            # Add gate symbols
-            if len(controls) == 0:  # NOT gate
-                lines[target] += "X"
-            elif len(controls) == 1:  # CNOT gate
-                control = controls[0]
-                lines[control] += "●"
-                lines[target] += "⊕"
-                # Add vertical lines
-                start = min(control, target)
-                end = max(control, target)
-                for i in range(start + 1, end):
-                    lines[i] += "│"
-            elif len(controls) == 2:  # CCNOT gate
-                for control in controls:
-                    lines[control] += "●"
-                lines[target] += "⊕"
-                # Add vertical lines
-                all_qubits = sorted(controls + [target])
-                for i in range(all_qubits[0] + 1, all_qubits[-1]):
-                    if i not in all_qubits:
-                        lines[i] += "│"
-            
-            # Pad other lines
-            max_len = max(len(line) for line in lines)
-            for i in range(width):
-                while len(lines[i]) < max_len:
-                    lines[i] += "─"
-            
-            # Add spacing after gate
-            for i in range(width):
-                lines[i] += "─"
-                
-        except Exception as e:
-            # Skip problematic gates
-            logger.warning(f"Skipping gate {gate_idx} due to error: {e}")
-            continue
-    
-    return "\n".join(lines)
-
-
-
-@router.get("/circuits/{circuit_id}/details")
-async def get_enhanced_circuit_details(
-    circuit_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-):
-    """
-    Get enhanced details of a circuit including truth table, Hamming distance plot data,
-    and ASCII diagram.
-    
-    Args:
-        circuit_id: Circuit ID
-        factory: Factory instance
-        
-    Returns:
-        Enhanced circuit details including truth table and Hamming distance data
-    """
-    try:
-        db = factory.db
-        
-        # Get circuit
-        circuit = db.get_circuit(circuit_id)
-        if not circuit:
-            raise HTTPException(status_code=404, detail="Circuit not found")
-        
-        # Generate ASCII representation
+        # Generate ASCII diagram
         ascii_diagram = _generate_ascii_diagram(circuit.gates, circuit.width)
-        
-        # Generate truth table by simulating the circuit
-        truth_table = _generate_truth_table_from_gates(circuit.gates, circuit.width)
-        
-        # Get or compute complexity walk (Hamming distances)
-        hamming_distances = circuit.complexity_walk if circuit.complexity_walk is not None else []
         
         # Generate gate descriptions
         gate_descriptions = []
         for i, gate in enumerate(circuit.gates):
-            if isinstance(gate, list) and len(gate) == 2:
-                controls, target = gate
-                if isinstance(controls, list):
-                    if len(controls) == 0:
-                        gate_descriptions.append(f"Gate {i+1}: NOT on qubit {target}")
-                    elif len(controls) == 1:
-                        gate_descriptions.append(f"Gate {i+1}: CNOT - control: {controls[0]}, target: {target}")
-                    elif len(controls) == 2:
-                        gate_descriptions.append(f"Gate {i+1}: CCNOT - controls: {controls[0]},{controls[1]}, target: {target}")
-                    else:
-                        gate_descriptions.append(f"Gate {i+1}: Multi-control gate with {len(controls)} controls")
-                else:
-                    gate_descriptions.append(f"Gate {i+1}: Invalid controls format")
-            else:
-                gate_descriptions.append(f"Gate {i+1}: Unknown gate format")
+            desc = _describe_gate(gate, i)
+            gate_descriptions.append(desc)
         
-        return {
-            "circuit_id": circuit_id,
-            "width": circuit.width,
-            "length": circuit.gate_count,
-            "gates": circuit.gates,
-            "permutation": circuit.permutation,
-            "complexity_walk": circuit.complexity_walk or [],
-            "truth_table": truth_table,
-            "ascii_diagram": ascii_diagram,
-            "hamming_distances": hamming_distances,
-            "gate_descriptions": gate_descriptions
-        }
+        # Generate permutation table
+        permutation_table = _generate_permutation_table(circuit.permutation, circuit.width)
+        
+        return CircuitVisualizationResponse(
+            circuit_id=circuit_id,
+            ascii_diagram=ascii_diagram,
+            gate_descriptions=gate_descriptions,
+            permutation_table=permutation_table
+        )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"API get enhanced circuit details failed: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
-
-def _generate_truth_table_from_gates(gates: List[Tuple], width: int) -> List[List[int]]:
-    """Generate truth table by simulating circuit gates."""
-    truth_table = []
-    
-    for input_value in range(2**width):
-        # Convert input to binary representation (LSB first)
-        state = [(input_value >> i) & 1 for i in range(width)]
-        input_bits = state.copy()
-        
-        # Simulate each gate
-        for gate in gates:
-            if isinstance(gate, list) and len(gate) == 2:
-                controls, target = gate
-                if isinstance(controls, list) and isinstance(target, int):
-                    # Check if all control qubits are 1
-                    if all(state[c] == 1 for c in controls):
-                        # Flip the target qubit
-                        state[target] = 1 - state[target]
-        
-        # Create truth table row: [input_bits] -> [output_bits]
-        truth_table.append(input_bits + state)
-    
-    return truth_table
-
-@router.post("/dim-groups/{dim_group_id}/unroll-all")
-async def unroll_all_in_dimension_group(
-    dim_group_id: int,
-    background_tasks: BackgroundTasks,
-    max_equivalents: Optional[int] = Query(100, description="Maximum equivalents per circuit"),
-    check_existing: bool = Query(True, description="Check and merge existing sub-seeds"),
-    factory: IdentityFactory = Depends(get_factory)
-) -> Dict[str, Any]:
-    """
-    Unroll ALL circuits in a dimension group to generate equivalent circuits.
-    This is an exhaustive process that goes through all gate compositions and circuits.
-    
-    Args:
-        dim_group_id: Dimension group ID
-        background_tasks: FastAPI background tasks
-        max_equivalents: Maximum equivalents per circuit
-        check_existing: Check and merge existing sub-seeds
-        factory: Factory instance
-        
-    Returns:
-        Batch unrolling result
-    """
-    try:
-        # Check if dimension group exists
-        dim_group = factory.db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
-        
-        # Get all circuits in this dimension group
-        all_circuits = factory.db.get_circuits_in_dim_group(dim_group_id)
-        
-        logger.info(f"API: Starting exhaustive unroll for dimension group {dim_group_id} with {len(all_circuits)} circuits")
-        
-        # Perform unrolling in background
-        def batch_unroll_task():
-            import time
-            total_processed = 0
-            total_equivalents = 0
-            total_merged = 0
-            start_time = time.time()
-            
-            for i, circuit in enumerate(all_circuits):
-                try:
-                    logger.info(f"Batch unroll: Processing circuit {circuit.id} ({i+1}/{len(all_circuits)})")
-                    
-                    # Perform unroll for this circuit synchronously (no async in background thread)
-                    # We'll call the unroller directly instead of the async function
-                    unroll_result = factory.unroller.unroll_circuit(circuit, max_equivalents)
-                    equivalents = unroll_result.get('equivalents', [])
-                    
-                    if len(equivalents) > max_equivalents:
-                        equivalents = equivalents[:max_equivalents]
-                        logger.info(f"Limiting equivalents from {len(equivalents)} to {max_equivalents}")
-                    
-                    # Store equivalents in database
-                    for equiv_gates in equivalents:
-                        equiv_id = factory.db.store_equivalent_circuit(
-                            original_circuit_id=circuit.id,
-                            gates=equiv_gates,
-                            width=circuit.width,
-                            permutation=circuit.permutation,
-                            unroll_type="batch_unroll"
-                        )
-                    
-                    total_processed += 1
-                    total_equivalents += len(equivalents)
-                    
-                    # Update circuit as representative
-                    factory.db.update_circuit_as_representative(circuit.id)
-                    
-                except Exception as e:
-                    logger.error(f"Batch unroll failed for circuit {circuit.id}: {e}")
-                    continue
-            
-            end_time = time.time()
-            total_time = end_time - start_time
-            
-            logger.info(f"Batch unroll completed for group {dim_group_id}: "
-                       f"{total_processed} circuits processed, "
-                       f"{total_equivalents} equivalents generated, "
-                       f"{total_merged} sub-seeds merged in {total_time:.2f}s")
-        
-        background_tasks.add_task(batch_unroll_task)
-        
-        return {
-            "success": True,
-            "message": f"Exhaustive unrolling started for dimension group {dim_group_id}",
-            "dim_group_id": dim_group_id,
-            "total_circuits": len(all_circuits),
-            "status": "processing",
-            "warning": "This is an exhaustive process that may take significant time to complete"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API batch unroll failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/dim-groups/{dim_group_id}/compositions/{composition}/unroll-all")
-async def unroll_all_in_composition(
-    dim_group_id: int,
-    composition: str,
-    background_tasks: BackgroundTasks,
-    max_equivalents: Optional[int] = Query(100, description="Maximum equivalents per circuit"),
-    check_existing: bool = Query(True, description="Check and merge existing sub-seeds"),
-    factory: IdentityFactory = Depends(get_factory)
-) -> Dict[str, Any]:
-    """
-    Unroll ALL circuits in a specific gate composition to generate equivalent circuits.
-    
-    Args:
-        dim_group_id: Dimension group ID
-        composition: Gate composition (e.g., "6,0,0")
-        background_tasks: FastAPI background tasks
-        max_equivalents: Maximum equivalents per circuit
-        check_existing: Check and merge existing sub-seeds
-        factory: Factory instance
-        
-    Returns:
-        Composition unrolling result
-    """
-    try:
-        # Check if dimension group exists
-        dim_group = factory.db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
-        
-        # Parse composition
-        try:
-            not_gates, cnot_gates, ccnot_gates = map(int, composition.split(','))
-            target_composition = (not_gates, cnot_gates, ccnot_gates)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid composition format")
-        
-        # Get circuits for this composition
-        circuits = factory.db.get_circuits_in_dim_group(dim_group_id)
-        composition_circuits = []
-        
-        for circuit in circuits:
-            circuit_composition = _calculate_gate_composition(circuit.gates)
-            if circuit_composition == target_composition:
-                composition_circuits.append(circuit)
-        
-        if not composition_circuits:
-            raise HTTPException(status_code=404, detail="No circuits found for this composition")
-        
-        logger.info(f"API: Starting composition unroll for {composition} in group {dim_group_id} with {len(composition_circuits)} circuits")
-        
-        # Perform unrolling in background
-        def composition_unroll_task():
-            import time
-            total_processed = 0
-            total_equivalents = 0
-            total_merged = 0
-            start_time = time.time()
-            
-            for i, circuit in enumerate(composition_circuits):
-                try:
-                    logger.info(f"Composition unroll: Processing circuit {circuit.id} ({i+1}/{len(composition_circuits)})")
-                    
-                    # Perform unroll for this circuit synchronously (no async in background thread)
-                    # We'll call the unroller directly instead of the async function
-                    equivalents = factory.unroller.unroll_circuit(circuit.gates, circuit.width)
-                    
-                    if len(equivalents) > max_equivalents:
-                        equivalents = equivalents[:max_equivalents]
-                        logger.info(f"Limiting equivalents from {len(equivalents)} to {max_equivalents}")
-                    
-                    # Store equivalents in database
-                    for equiv_gates in equivalents:
-                        equiv_id = factory.db.store_equivalent_circuit(
-                            original_circuit_id=circuit.id,
-                            gates=equiv_gates,
-                            width=circuit.width,
-                            permutation=circuit.permutation,
-                            unroll_type="batch_unroll"
-                        )
-                    
-                    total_processed += 1
-                    total_equivalents += len(equivalents)
-                    
-                    # Update circuit as representative
-                    factory.db.update_circuit_as_representative(circuit.id)
-                    
-                except Exception as e:
-                    logger.error(f"Composition unroll failed for circuit {circuit.id}: {e}")
-                    continue
-            
-            end_time = time.time()
-            total_time = end_time - start_time
-            
-            logger.info(f"Composition unroll completed for {composition} in group {dim_group_id}: "
-                       f"{total_processed} circuits processed, "
-                       f"{total_equivalents} equivalents generated, "
-                       f"{total_merged} sub-seeds merged in {total_time:.2f}s")
-        
-        background_tasks.add_task(composition_unroll_task)
-        
-        return {
-            "success": True,
-            "message": f"Composition unrolling started for {composition} in dimension group {dim_group_id}",
-            "dim_group_id": dim_group_id,
-            "composition": composition,
-            "total_circuits": len(composition_circuits),
-            "status": "processing",
-            "warning": "This process may take significant time depending on the number of circuits"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API composition unroll failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/unroll/{dim_group_id}")
-async def unroll_dimension_group(
-    dim_group_id: int,
-    background_tasks: BackgroundTasks,
-    unroll_types: Optional[List[str]] = Query(None, description="Unroll types to apply"),
-    factory: IdentityFactory = Depends(get_factory)
-) -> Dict[str, Any]:
-    """
-    Unroll a dimension group to generate equivalent circuits (legacy endpoint).
-    
-    Args:
-        dim_group_id: Dimension group ID
-        background_tasks: FastAPI background tasks
-        unroll_types: Types of unrolling to apply
-        factory: Factory instance
-        
-    Returns:
-        Unrolling result
-    """
-    try:
-        # Check if dimension group exists
-        dim_group = factory.db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
-        
-        # Perform unrolling in background
-        def unroll_task():
-            result = factory.unroller.unroll_dimension_group(dim_group_id, unroll_types)
-            logger.info(f"Background unroll completed for group {dim_group_id}: {result.success}")
-        
-        background_tasks.add_task(unroll_task)
-        
-        return {
-            "success": True,
-            "message": f"Unrolling started for dimension group {dim_group_id}",
-            "dim_group_id": dim_group_id,
-            "status": "processing"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API unroll failed: {e}")
+        logger.error(f"API get circuit visualization failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/stats", response_model=FactoryStatsResponse)
 async def get_stats(
-    factory: IdentityFactory = Depends(get_factory)
+    database: CircuitDatabase = Depends(get_database)
 ) -> FactoryStatsResponse:
     """
     Get factory statistics.
     
     Args:
-        factory: Factory instance
+        database: Database instance
         
     Returns:
         Factory statistics
     """
     try:
-        stats = factory.get_factory_stats()
+        stats = database.get_database_stats()
         
         return FactoryStatsResponse(
-            total_dim_groups=stats.total_dim_groups,
-            total_circuits=stats.total_circuits,
-            total_seeds_generated=stats.total_representatives,
-            total_equivalents_generated=stats.total_equivalents,
-            total_simplifications=stats.total_simplifications,
-            total_debris_analyses=stats.total_debris_analyses,
-            total_ml_analyses=stats.total_ml_analyses,
-            active_jobs=stats.active_jobs,
-            generation_time=stats.generation_time,
-            unroll_time=stats.unroll_time,
-            post_process_time=stats.post_process_time,
-            debris_analysis_time=stats.debris_analysis_time,
-            ml_analysis_time=stats.ml_analysis_time
+            total_circuits=stats['total_circuits'],
+            total_dim_groups=stats['total_dim_groups'],
+            total_representatives=stats['total_representatives'],
+            total_equivalents=stats['total_equivalents'],
+            pending_jobs=stats['pending_jobs']
         )
         
     except Exception as e:
         logger.error(f"API get stats failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/analyze/{dim_group_id}", response_model=DimGroupAnalysisResponse)
-async def analyze_dimension_group(
-    dim_group_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-) -> DimGroupAnalysisResponse:
+@router.get("/generator/stats", response_model=GenerationStatsResponse)
+async def get_generation_stats(
+    seed_generator: SeedGenerator = Depends(get_seed_generator)
+) -> GenerationStatsResponse:
     """
-    Get comprehensive analysis of a dimension group.
+    Get seed generation statistics.
     
     Args:
-        dim_group_id: Dimension group ID
-        factory: Factory instance
+        seed_generator: Seed generator instance
         
     Returns:
-        Dimension group analysis
+        Generation statistics
     """
     try:
-        analysis = factory.get_dimension_group_analysis(dim_group_id)
+        stats = seed_generator.get_generation_stats()
         
-        if 'error' in analysis:
-            raise HTTPException(status_code=404, detail=analysis['error'])
-        
-        return DimGroupAnalysisResponse(
-            dim_group_id=analysis['dim_group_id'],
-            width=analysis['width'],
-            length=analysis['gate_count'],
-            total_equivalents=analysis['total_equivalents'],
-            is_processed=analysis['is_processed'],
-            equivalents=analysis['equivalents']
+        return GenerationStatsResponse(
+            total_attempts=stats['total_attempts'],
+            successful_generations=stats['successful_generations'],
+            failed_generations=stats['failed_generations'],
+            success_rate_percent=stats['success_rate_percent'],
+            total_generation_time=stats['total_generation_time'],
+            average_generation_time=stats['average_generation_time']
         )
         
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"API analyze failed: {e}")
+        logger.error(f"API get generation stats failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/batch-generate", response_model=UnrollResultResponse)
-async def batch_generate(
-    request: BatchCircuitRequest,
-    background_tasks: BackgroundTasks,
-    factory: IdentityFactory = Depends(get_factory)
-) -> UnrollResultResponse:
-    """
-    Generate multiple identity circuits in batch.
-    
-    Args:
-        request: Batch generation parameters
-        background_tasks: FastAPI background tasks
-        factory: Factory instance
-        
-    Returns:
-        Batch generation result
-    """
-    try:
-        logger.info(f"API: Batch generating {len(request.dimensions)} circuits")
-        
-        # Convert dimensions
-        dimensions = [(d.width, d.gate_count) for d in request.dimensions]
-        
-        if request.use_background:
-            # Process in background
-            def batch_task():
-                results = factory.batch_generate(
-                    dimensions,
-                    use_job_queue=request.use_job_queue,
-                    max_inverse_gates=request.max_inverse_gates
-                )
-                logger.info(f"Background batch completed: {len(results)} results")
-            
-            background_tasks.add_task(batch_task)
-            
-            return UnrollResultResponse(
-                success=True,
-                dim_group_id=0,  # placeholder for batch
-                total_equivalents=0,
-                new_circuits=len(dimensions)
-            )
-        else:
-            # Process synchronously
-            results = factory.batch_generate(
-                dimensions,
-                use_job_queue=request.use_job_queue,
-                max_inverse_gates=request.max_inverse_gates
-            )
-            
-            successful = sum(1 for r in results.values() if r['success'])
-            
-            return UnrollResultResponse(
-                success=True,
-                dim_group_id=0,  # placeholder for batch
-                total_equivalents=sum(r.get('total_equivalents', 0) for r in results.values() if r['success']),
-                new_circuits=successful
-            )
-        
-    except Exception as e:
-        logger.error(f"API batch generate failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.delete("/dimension-groups/{dim_group_id}")
-async def delete_dimension_group(
-    dim_group_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-) -> Dict[str, Any]:
-    """
-    Delete a dimension group and all associated circuits.
-    
-    Args:
-        dim_group_id: Dimension group ID
-        factory: Factory instance
-        
-    Returns:
-        Deletion result
-    """
-    try:
-        # Check if dimension group exists
-        dim_group = factory.db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
-        
-        # Delete dimension group (this should cascade to delete associated circuits)
-        success = factory.db.delete_dim_group(dim_group_id)
-        
-        if success:
-            return {
-                "success": True,
-                "message": f"Dimension group {dim_group_id} deleted successfully"
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to delete dimension group")
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"API delete dimension group failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Health check endpoint
-@router.get("/health")
-async def health_check() -> Dict[str, str]:
+@router.get("/health", response_model=HealthResponse)
+async def health_check() -> HealthResponse:
     """Health check endpoint."""
-    return {"status": "healthy", "service": "identity-circuit-factory"}
-
-# Version endpoint
-@router.get("/version")
-async def get_version() -> Dict[str, str]:
-    """Get API version information."""
-    return {
-        "version": "1.0.0",
-        "api_version": "v1",
-        "service": "identity-circuit-factory"
-    }
-
-@router.post("/dim-groups/{dim_group_id}/cleanup")
-async def cleanup_dimension_group(
-    dim_group_id: int,
-    factory: IdentityFactory = Depends(get_factory)
-) -> Dict[str, Any]:
-    """
-    Clean up duplicate representatives and reorganize sub-seeds in a dimension group.
-    
-    Args:
-        dim_group_id: Dimension group ID to clean up
-        factory: Factory instance
-        
-    Returns:
-        Cleanup results
-    """
     try:
-        db = factory.db
+        # Test database connection
+        database = get_database()
+        database_connected = True
+        try:
+            database.get_database_stats()
+        except:
+            database_connected = False
         
-        # Check if dimension group exists
-        dim_group = db.get_dim_group_by_id(dim_group_id)
-        if not dim_group:
-            raise HTTPException(status_code=404, detail="Dimension group not found")
+        # Test SAT solver availability
+        sat_solver_available = True
+        try:
+            from sat_revsynth.synthesizers.circuit_synthesizer import CircuitSynthesizer
+        except:
+            sat_solver_available = False
         
-        logger.info(f"Starting cleanup for dimension group {dim_group_id}")
+        return HealthResponse(
+            status="healthy" if database_connected and sat_solver_available else "degraded",
+            timestamp=datetime.now(),
+            version="1.0.0",
+            database_connected=database_connected,
+            sat_solver_available=sat_solver_available
+        )
         
-        # Clean up duplicate representatives
-        duplicates_cleaned = db.cleanup_duplicate_representatives(dim_group_id)
-        
-        logger.info(f"Cleanup completed for dimension group {dim_group_id}: {duplicates_cleaned} duplicates cleaned")
-        
-        return {
-            "success": True,
-            "dim_group_id": dim_group_id,
-            "duplicates_cleaned": duplicates_cleaned,
-            "message": f"Cleaned up {duplicates_cleaned} duplicate representatives"
-        }
-        
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Cleanup failed for dimension group {dim_group_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Helper functions
+
+def _generate_ascii_diagram(gates: List[Tuple], width: int) -> str:
+    """Generate ASCII diagram for a circuit."""
+    try:
+        from sat_revsynth.circuit.circuit import Circuit
+        
+        circuit = Circuit(width)
+        for gate in gates:
+            if gate[0] == 'X':
+                circuit.x(gate[1])
+            elif gate[0] == 'CX':
+                circuit.cx(gate[1], gate[2])
+            elif gate[0] == 'CCX':
+                circuit.mcx([gate[1], gate[2]], gate[3])
+            else:
+                # Handle unknown gate types gracefully
+                logger.warning(f"Unknown gate type: {gate}")
+        
+        # Get the string representation with proper formatting
+        diagram = str(circuit)
+        
+        # Clean up the diagram - ensure proper spacing and formatting
+        if diagram and len(diagram.strip()) > 10:
+            # Remove any extra whitespace and ensure consistent formatting
+            lines = diagram.split('\n')
+            # Filter out empty lines and normalize spacing
+            cleaned_lines = []
+            for line in lines:
+                if line.strip():  # Only include non-empty lines
+                    cleaned_lines.append(line.rstrip())  # Remove trailing whitespace
+            
+            # Join with proper newlines
+            diagram = '\n'.join(cleaned_lines)
+            
+            # Ensure the diagram ends with a newline for proper display
+            if not diagram.endswith('\n'):
+                diagram += '\n'
+                
+            return diagram
+        
+        # Fallback if diagram generation fails
+        fallback = f"Circuit with {len(gates)} gates on {width} qubits:\n"
+        for i, gate in enumerate(gates):
+            fallback += f"  {i+1}. {gate}\n"
+        return fallback
+        
+    except Exception as e:
+        # Provide detailed error information and fallback
+        error_msg = f"Error generating circuit diagram: {e}\n\n"
+        error_msg += f"Circuit details:\n"
+        error_msg += f"  Width: {width} qubits\n"
+        error_msg += f"  Gates: {len(gates)}\n"
+        for i, gate in enumerate(gates):
+            error_msg += f"    {i+1}. {gate}\n"
+        return error_msg
+
+def _describe_gate(gate: Tuple, index: int) -> str:
+    """Generate human-readable description of a gate."""
+    if gate[0] == 'X':
+        return f"Gate {index + 1}: X (NOT) on qubit {gate[1]}"
+    elif gate[0] == 'CX':
+        return f"Gate {index + 1}: CX (CNOT) from qubit {gate[1]} to qubit {gate[2]}"
+    elif gate[0] == 'CCX':
+        return f"Gate {index + 1}: CCX (Toffoli) with controls {gate[1]}, {gate[2]} and target {gate[3]}"
+    else:
+        return f"Gate {index + 1}: {gate}"
+
+def _generate_permutation_table(permutation: List[int], width: int) -> List[List[int]]:
+    """Generate permutation table showing input -> output mapping."""
+    table = []
+    for i in range(2**width):
+        input_binary = [int(b) for b in format(i, f'0{width}b')]
+        output_index = permutation[i]
+        output_binary = [int(b) for b in format(output_index, f'0{width}b')]
+        # Format: [In#, In0, In1, ..., Out#, Out0, Out1, ...] (corrected to show proper permutation)
+        table.append([i] + input_binary + [output_index] + output_binary)
+    return table

@@ -11,9 +11,7 @@ from .database import (
     CircuitDatabase, 
     CircuitRecord, 
     DimGroupRecord, 
-    DebrisCancellationRecord,
     JobRecord,
-    MLFeatureRecord
 )
 from .seed_generator import SeedGenerator, SeedGenerationResult
 from .unroller import CircuitUnroller, UnrollResult
@@ -52,9 +50,7 @@ __all__ = [
     "CircuitDatabase",
     "CircuitRecord",
     "DimGroupRecord", 
-    "DebrisCancellationRecord",
     "JobRecord",
-    "MLFeatureRecord",
     
     # Core processing components
     "SeedGenerator",

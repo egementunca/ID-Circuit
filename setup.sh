@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Identity Circuit Factory - Quick Setup Script
+# ID-Circuit: Identity Circuit Factory - Quick Setup Script
 # Run this after cloning the repository: ./setup.sh
 
 set -e  # Exit on any error
@@ -38,14 +38,14 @@ echo ""
 echo "📦 Installing Identity Circuit Factory..."
 pip install -e ".[dev]"
 
-# Verify installation
+# Verify core installation
 echo ""
 echo "🧪 Verifying installation..."
 python -c "
 import identity_factory
 from identity_factory.api.server import run_server
 from sat_revsynth.circuit.circuit import Circuit
-print('✅ All imports successful!')
+print('✅ Core imports successful!')
 "
 
 # Test SAT synthesis
@@ -63,6 +63,12 @@ echo "Next steps:"
 echo "  1. Activate environment: source .venv/bin/activate"
 echo "  2. Start API server: python start_api.py"
 echo "  3. Test API: curl http://localhost:8000/health"
-echo "  4. View docs: http://localhost:8000/docs"
+echo "  4. View API docs: http://localhost:8000/docs"
+echo "  5. Set up frontend: cd frontend-next && npm install && npm run dev"
 echo ""
-echo "For detailed instructions, see INSTALL.txt" 
+echo "🔧 Available commands:"
+echo "  - Generate circuits: python -m identity_factory"
+echo "  - Run tests: pytest"
+echo "  - Format code: black ."
+echo ""
+echo "For detailed documentation, see README.md" 

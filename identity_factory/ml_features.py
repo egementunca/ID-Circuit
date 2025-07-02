@@ -501,17 +501,17 @@ class MLFeatureManager:
         suggestions = self.advisor.get_optimization_suggestions(features, complexity_score)
         
         # Store in database
-        from .database import MLFeatureRecord
-        ml_record = MLFeatureRecord(
-            id=None,
-            circuit_id=circuit_id,
-            dim_group_id=dim_group_id,
-            features=features.to_dict(),
-            complexity_prediction=complexity_score,
-            optimization_suggestion="; ".join(suggestions) if suggestions else None
-        )
-        
-        self.database.store_ml_features(ml_record)
+        # from .database import MLFeatureRecord  # Removed - doesn't exist in simplified database
+        # ml_record = MLFeatureRecord(
+        #     id=None,
+        #     circuit_id=circuit_id,
+        #     dim_group_id=dim_group_id,
+        #     features=features.to_dict(),
+        #     complexity_prediction=complexity_score,
+        #     optimization_suggestion="; ".join(suggestions) if suggestions else None
+        # )
+        # 
+        # self.database.store_ml_features(ml_record)
         
         return {
             'features': features.to_dict(),
@@ -528,13 +528,14 @@ class MLFeatureManager:
     
     def get_circuit_analysis(self, circuit_id: int) -> Optional[Dict[str, Any]]:
         """Get stored ML analysis for a circuit."""
-        ml_record = self.database.get_ml_features(circuit_id)
-        if ml_record:
-            return {
-                'features': ml_record.features,
-                'complexity_prediction': ml_record.complexity_prediction,
-                'optimization_suggestion': ml_record.optimization_suggestion
-            }
+        # from .database import MLFeatureRecord  # Removed - doesn't exist in simplified database
+        # ml_record = self.database.get_ml_features(circuit_id)
+        # if ml_record:
+        #     return {
+        #         'features': ml_record.features,
+        #         'complexity_prediction': ml_record.complexity_prediction,
+        #         'optimization_suggestion': ml_record.optimization_suggestion
+        #     }
         return None
     
     def get_dim_group_statistics(self, dim_group_id: int) -> Dict[str, Any]:

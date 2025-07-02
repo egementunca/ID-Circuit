@@ -1,0 +1,56 @@
+2-Qubit, 2-Gate Identity Circuits - Grouped by Total Gate Counts
+(Using correct sequential gate visualization - equivalent circuits filtered)
+================================================================================
+
+Total unique circuits found: 4
+Number of different gate count patterns: 2
+Available gates: {'X', 'CX'}
+
+GROUP 1: X gates = 0, CX gates = 2
+Circuits in this group: 2
+--------------------------------------------------
+
+Circuit 1.1:
+Gate sequence: (('CX', 0, 1), ('CX', 0, 1))
+                 
+q_0: ──■─────■───
+     ┌─┴─┐ ┌─┴─┐ 
+q_1: ┤ X ├─┤ X ├─
+     └───┘ └───┘ 
+------------------------------
+
+Circuit 1.2:
+Gate sequence: (('CX', 1, 0), ('CX', 1, 0))
+     ┌───┐ ┌───┐ 
+q_0: ┤ X ├─┤ X ├─
+     └─┬─┘ └─┬─┘ 
+q_1: ──■─────■───
+                 
+------------------------------
+
+================================================================================
+
+GROUP 2: X gates = 2, CX gates = 0
+Circuits in this group: 2
+--------------------------------------------------
+
+Circuit 2.1:
+Gate sequence: (('X', 0), ('X', 0))
+     ┌───┐ ┌───┐ 
+q_0: ┤ X ├─┤ X ├─
+     └───┘ └───┘ 
+q_1: ────────────
+                 
+------------------------------
+
+Circuit 2.2:
+Gate sequence: (('X', 1), ('X', 1))
+                 
+q_0: ────────────
+     ┌───┐ ┌───┐ 
+q_1: ┤ X ├─┤ X ├─
+     └───┘ └───┘ 
+------------------------------
+
+================================================================================
+

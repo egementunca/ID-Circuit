@@ -2,37 +2,57 @@
 .venv/
 venv/
 env/
+ENV/
 
-# Python cache
+# Python cache and build
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 *.egg-info/
+build/
+dist/
+*.egg
 
-# Git
+# Git and version control
 .git/
 .gitignore
+.gitattributes
 
-# IDE
+# IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+*.sublime-*
 
-# OS
+# OS specific
 .DS_Store
+._*
 Thumbs.db
 
-# Logs
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+identity_circuits.db
+test.db
+
+# Log files
 *.log
 logs/
+api_debug.log
+clean_api.log
+frontend_debug.log
 
-# Testing
+# Testing and coverage
 .coverage
 .pytest_cache/
 htmlcov/
+.tox/
+.nox/
+coverage.xml
 
 # Documentation
 docs/
@@ -45,9 +65,28 @@ docs/
 Makefile
 scripts/
 
-# Node modules (if any)
+# Frontend (exclude from backend container)
+frontend-next/
 node_modules/
 
 # Temporary files
 tmp/
 temp/
+*.tmp
+*.temp
+.cache/
+
+# Project specific output files
+*.seed
+*.cnf
+*.dimacs
+*.sat
+*.unsat
+
+# Papers and analysis (often large)
+papers/
+identity_circuits_analysis/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints

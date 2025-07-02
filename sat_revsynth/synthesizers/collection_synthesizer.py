@@ -1,5 +1,5 @@
 from sat_revsynth.circuit.collection import Collection
-from synthesizers.dimgroup_synthesizer import DimGroupSynthesizer
+from sat_revsynth.synthesizers.dimgroup_synthesizer import DimGroupSynthesizer
 from pickle import dump
 from os.path import join
 

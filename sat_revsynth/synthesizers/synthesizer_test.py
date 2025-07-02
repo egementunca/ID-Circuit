@@ -2,7 +2,7 @@ import pytest
 from random import randint, sample
 from sat_revsynth.sat.solver import Solver
 from sat_revsynth.truth_table.truth_table import TruthTable
-from synthesizers.circuit_synthesizer import CircuitSynthesizer
+from sat_revsynth.synthesizers.circuit_synthesizer import CircuitSynthesizer
 
 
 solver_names = Solver.builtin_solvers

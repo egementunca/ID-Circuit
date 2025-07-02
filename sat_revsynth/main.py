@@ -1,5 +1,5 @@
 from sat_revsynth.truth_table.truth_table import TruthTable
-from synthesizers.optimal_synthesizer import OptimalSynthesizer
+from sat_revsynth.synthesizers.optimal_synthesizer import OptimalSynthesizer
 from sat_revsynth.sat.solver import Solver
 from tqdm import tqdm
 from random import shuffle

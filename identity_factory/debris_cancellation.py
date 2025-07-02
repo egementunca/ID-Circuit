@@ -8,7 +8,7 @@ from typing import List, Tuple, Dict, Optional, Set, Any
 from dataclasses import dataclass
 from sat_revsynth.circuit.circuit import Circuit
 import logging
-from .database import DebrisCancellationRecord
+# from .database import DebrisCancellationRecord  # Removed - doesn't exist in simplified database
 
 logger = logging.getLogger(__name__)
 

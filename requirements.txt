@@ -2,26 +2,26 @@
 qiskit>=1.0.0
 numpy>=1.21.0
 scipy>=1.7.0
+python-sat>=0.1.7
 
-# Web framework
+# Web framework and API
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 httpx>=0.25.0
 pydantic>=2.0.0
 
-# Async & Redis (optional)
-aioredis>=2.0.0
+# Database
+sqlite3  # Built into Python, no need to install
 
 # Utilities
 colorama>=0.4.4
 tqdm>=4.64.0
 
-# Development tools
+# Development and testing
 pytest>=7.0.0
 pytest-asyncio>=0.21.0
 black>=23.0.0
 flake8>=6.0.0
 
-# Optional: For better performance
-# numba>=0.56.0  # For JIT compilation
-# cython>=0.29.0  # For C extensions 
+# Optional: Async support (if needed)
+# aioredis>=2.0.0 

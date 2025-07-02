@@ -1,5 +1,6 @@
 """
 Pydantic models for API request/response schemas.
+Updated for simplified database structure.
 """
 
 from pydantic import BaseModel, Field
@@ -7,29 +8,11 @@ from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime
 from enum import Enum
 
-class UnrollType(str, Enum):
-    """Types of unrolling operations."""
-    SWAP = "swap"
-    ROTATION = "rotation"
-    PERMUTATION = "permutation"
-    REVERSE = "reverse"
-    LOCAL_UNROLL = "local_unroll"
-    FULL_UNROLL = "full_unroll"
-
-class SimplificationType(str, Enum):
-    """Types of simplification operations."""
-    SWAP_CANCEL = "swap_cancel"
-    TEMPLATE = "template"
-    NONE = "none"
-
 class JobType(str, Enum):
     """Types of jobs that can be processed."""
     SEED_GENERATION = "seed_generation"
     UNROLLING = "unrolling"
     POST_PROCESSING = "post_processing"
-    DEBRIS_ANALYSIS = "debris_analysis"
-    ML_FEATURE_EXTRACTION = "ml_feature_extraction"
-    PARQUET_EXPORT = "parquet_export"
 
 class JobStatus(str, Enum):
     """Job status values."""
@@ -42,165 +25,81 @@ class JobStatus(str, Enum):
 class CircuitRequest(BaseModel):
     """Request model for circuit generation."""
     width: int = Field(..., ge=1, le=10, description="Number of qubits")
-    gate_count: int = Field(..., ge=1, le=50, description="Number of gates in forward circuit", alias="length")
+    forward_length: int = Field(..., ge=1, le=20, description="Number of gates in forward circuit")
     max_inverse_gates: Optional[int] = Field(40, ge=1, le=100, description="Maximum inverse gates")
-    sequential: Optional[bool] = Field(True, description="Use sequential gate generation")
-    enable_unrolling: Optional[bool] = Field(True, description="Enable unrolling step")
-    enable_post_processing: Optional[bool] = Field(True, description="Enable post-processing step")
-    enable_debris_analysis: Optional[bool] = Field(True, description="Enable debris cancellation analysis")
-    enable_ml_analysis: Optional[bool] = Field(True, description="Enable ML feature extraction")
-    use_job_queue: Optional[bool] = Field(False, description="Use distributed processing")
+    max_attempts: Optional[int] = Field(10, ge=1, le=50, description="Maximum generation attempts")
 
 class BatchCircuitRequest(BaseModel):
     """Request model for batch circuit generation."""
-    dimensions: List[Tuple[int, int]] = Field(..., description="List of (width, length) tuples")
+    dimensions: List[Tuple[int, int]] = Field(..., description="List of (width, forward_length) tuples")
     max_inverse_gates: Optional[int] = Field(40, ge=1, le=100)
-    sequential: Optional[bool] = Field(True)
-    enable_unrolling: Optional[bool] = Field(True)
-    enable_post_processing: Optional[bool] = Field(True)
-    enable_debris_analysis: Optional[bool] = Field(True)
-    enable_ml_analysis: Optional[bool] = Field(True)
-    use_job_queue: Optional[bool] = Field(False)
-
-class UnrollRequest(BaseModel):
-    """Request model for unrolling operations."""
-    dim_group_id: int = Field(..., description="Dimension group ID to unroll")
-    unroll_types: Optional[List[UnrollType]] = Field(None, description="Types of unrolling to apply")
-    max_equivalents: Optional[int] = Field(10000, ge=1, le=100000, description="Maximum equivalent circuits")
-
-class SimplificationRequest(BaseModel):
-    """Request model for simplification operations."""
-    dim_group_id: int = Field(..., description="Dimension group ID to simplify")
-    simplification_types: Optional[List[SimplificationType]] = Field(None, description="Types of simplification to apply")
-
-class DebrisAnalysisRequest(BaseModel):
-    """Request model for debris cancellation analysis."""
-    dim_group_id: int = Field(..., description="Dimension group ID")
-    circuit_id: int = Field(..., description="Circuit ID to analyze")
-    max_debris_gates: Optional[int] = Field(5, ge=1, le=10, description="Maximum debris gates to insert")
-
-class MLAnalysisRequest(BaseModel):
-    """Request model for ML feature analysis."""
-    circuit_id: int = Field(..., description="Circuit ID to analyze")
-    dim_group_id: int = Field(..., description="Dimension group ID")
-
-class ExportRequest(BaseModel):
-    """Request model for export operations."""
-    dim_group_id: int = Field(..., description="Dimension group ID to export")
-    output_path: str = Field(..., description="Output file path")
-
-class ImportRequest(BaseModel):
-    """Request model for import operations."""
-    import_path: str = Field(..., description="Path to import file")
-    overwrite_existing: Optional[bool] = Field(False, description="Overwrite existing dimension groups")
-
-class RecommendationRequest(BaseModel):
-    """Request model for dimension recommendations."""
-    target_width: int = Field(..., ge=1, le=10, description="Target number of qubits")
-    max_length: Optional[int] = Field(20, ge=1, le=50, description="Maximum circuit length")
-    limit: Optional[int] = Field(10, ge=1, le=100, description="Number of recommendations")
+    max_attempts: Optional[int] = Field(10, ge=1, le=50)
 
 class CircuitResponse(BaseModel):
     """Response model for circuit data."""
     id: int
     width: int
-    length: int
+    gate_count: int  # Total length of the identity circuit
     gates: List[Tuple]
     permutation: List[int]
     complexity_walk: Optional[List[int]] = None
     circuit_hash: Optional[str] = None
-    is_representative: Optional[bool] = False
-    representative_id: Optional[int] = None
-    fully_unrolled: Optional[bool] = False
+    dim_group_id: Optional[int] = None
+    representative_id: Optional[int] = None  # Points to self if this is a representative
+    is_representative: bool = False  # True if representative_id == id
+
+    @classmethod
+    def from_circuit_record(cls, circuit_record):
+        """Create response from CircuitRecord."""
+        return cls(
+            id=circuit_record.id,
+            width=circuit_record.width,
+            gate_count=circuit_record.gate_count,
+            gates=circuit_record.gates,
+            permutation=circuit_record.permutation,
+            complexity_walk=circuit_record.complexity_walk,
+            circuit_hash=circuit_record.circuit_hash,
+            dim_group_id=circuit_record.dim_group_id,
+            representative_id=circuit_record.representative_id,
+            is_representative=(circuit_record.representative_id == circuit_record.id)
+        )
 
 class DimGroupResponse(BaseModel):
     """Response model for dimension group data."""
     id: int
     width: int
-    length: int
+    gate_count: int  # Length/number of gates
     circuit_count: int
-    total_equivalents: int
+    representative_count: int  # Number of representative circuits
+
     is_processed: bool
 
-class RepresentativeCircuitResponse(BaseModel):
-    """Response model for representative circuit data."""
-    circuit: CircuitResponse
-    gate_composition: Tuple[int, int, int]
-    composition_count: int
-    total_equivalents: int
-    fully_unrolled: bool = False
-
-class CircuitASCIIRepresentation(BaseModel):
-    """Response model for a circuit's ASCII diagram."""
-    circuit_id: int
-    diagram: str
-
-class EnhancedCircuitDetailsResponse(BaseModel):
-    """Response model for enhanced circuit details including truth table and Hamming distance."""
-    circuit_id: int
-    width: int
-    length: int
-    gates: List[Tuple]
-    permutation: List[int]
-    complexity_walk: List[int]
-    truth_table: List[List[int]]
-    ascii_diagram: str
-    hamming_distances: List[int]
-    gate_descriptions: List[str]
-
-class CircuitEquivalentResponse(BaseModel):
-    """Response model for circuit equivalent data."""
-    id: int
-    circuit_id: int
-    dim_group_id: int
-    parent_seed_id: Optional[int]
-    unroll_type: Optional[str]
-    unroll_params: Optional[Dict[str, Any]]
-    gate_composition: Optional[Tuple[int, int, int]]
-
-class SimplificationResponse(BaseModel):
-    """Response model for simplification data."""
-    id: int
-    original_circuit_id: int
-    simplified_circuit_id: Optional[int]
-    target_dim_group_id: Optional[int]
-    reduction_metrics: Optional[Dict[str, Any]]
-    simplification_type: str
+class CircuitsByCompositionResponse(BaseModel):
+    """Response model for circuits grouped by gate composition."""
+    gate_composition: Tuple[int, int, int]  # (NOT, CNOT, CCNOT)
+    circuits: List[CircuitResponse]
+    total_count: int
 
 class GenerationResultResponse(BaseModel):
     """Response model for generation results."""
     success: bool
-    width: int
-    length: int
-    seed_circuit_id: Optional[int] = None
+    circuit_id: Optional[int] = None
     dim_group_id: Optional[int] = None
-    total_equivalents: Optional[int] = None
-    successful_simplifications: Optional[int] = None
+    forward_gates: Optional[List[Tuple]] = None
+    inverse_gates: Optional[List[Tuple]] = None
+    identity_gates: Optional[List[Tuple]] = None
+    gate_composition: Optional[Tuple[int, int, int]] = None
     total_time: float
     error_message: Optional[str] = None
     metrics: Optional[Dict[str, Any]] = None
-    debris_analysis: Optional[Dict[str, Any]] = None
-    ml_analysis: Optional[Dict[str, Any]] = None
 
-class UnrollResultResponse(BaseModel):
-    """Response model for unrolling results."""
-    success: bool
-    dim_group_id: int
-    total_equivalents: int
-    new_circuits: int
-    unroll_types: Optional[Dict[str, int]] = None
-    error_message: Optional[str] = None
-    metrics: Optional[Dict[str, Any]] = None
-
-class SimplificationResultResponse(BaseModel):
-    """Response model for simplification results."""
-    success: bool
-    original_circuit_id: int
-    simplified_circuit_id: Optional[int] = None
-    target_dim_group_id: Optional[int] = None
-    reduction_metrics: Optional[Dict[str, Any]] = None
-    simplification_type: str
-    error_message: Optional[str] = None
+class BatchGenerationResultResponse(BaseModel):
+    """Response model for batch generation results."""
+    total_requested: int
+    successful_generations: int
+    failed_generations: int
+    results: List[GenerationResultResponse]
+    total_time: float
 
 class JobResponse(BaseModel):
     """Response model for job data."""
@@ -211,13 +110,12 @@ class JobResponse(BaseModel):
     parameters: Dict[str, Any]
     result: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
-    created_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     @classmethod
     def from_job_record(cls, job_record):
-        """Create JobResponse from JobRecord."""
+        """Create response from JobRecord."""
         return cls(
             id=job_record.id,
             job_type=job_record.job_type,
@@ -226,71 +124,19 @@ class JobResponse(BaseModel):
             parameters=job_record.parameters,
             result=job_record.result,
             error_message=job_record.error_message,
-            created_at=job_record.created_at,
             started_at=job_record.started_at,
             completed_at=job_record.completed_at
         )
 
-class DebrisAnalysisResponse(BaseModel):
-    """Response model for debris cancellation analysis."""
-    improvement_found: bool
-    original_gate_count: Optional[int] = None
-    final_gate_count: Optional[int] = None
-    non_triviality_score: Optional[float] = None
-    debris_gates: List[Tuple] = []
-    cancellation_path: List[int] = []
-
-class MLAnalysisResponse(BaseModel):
-    """Response model for ML feature analysis."""
-    circuit_id: int
-    dim_group_id: int
-    features: Dict[str, float]
-    complexity_prediction: float
-    optimization_suggestions: List[str]
-    feature_summary: Optional[Dict[str, Any]] = None
-
-class MLStatisticsResponse(BaseModel):
-    """Response model for ML statistics."""
-    dim_group_id: int
-    avg_complexity: float
-    complexity_distribution: List[float]
-    common_optimizations: List[str]
-    feature_correlations: Dict[str, float]
-
-class DimGroupAnalysisResponse(BaseModel):
-    """Response model for comprehensive dimension group analysis."""
-    dim_group_id: int
-    width: int
-    length: int
-    total_equivalents: int
-    is_processed: bool
-    equivalents: Dict[str, Any]
-    debris_analysis: Optional[Dict[str, Any]] = None
-    ml_analysis: Optional[Dict[str, Any]] = None
-
 class FactoryStatsResponse(BaseModel):
     """Response model for factory statistics."""
-    total_dim_groups: int
     total_circuits: int
-    total_seeds_generated: int
-    total_equivalents_generated: int
-    total_simplifications: int
-    total_debris_analyses: int = 0
-    total_ml_analyses: int = 0
-    active_jobs: int = 0
+    total_dim_groups: int
+    total_representatives: int
+    total_equivalents: int
+    pending_jobs: int
     generation_time: float = 0.0
-    unroll_time: float = 0.0
-    post_process_time: float = 0.0
-    debris_analysis_time: float = 0.0
-    ml_analysis_time: float = 0.0
-
-class DetailedStatsResponse(BaseModel):
-    """Response model for detailed statistics."""
-    factory_stats: FactoryStatsResponse
-    seed_stats: Dict[str, Any]
-    unroll_stats: Dict[str, Any]
-    post_stats: Dict[str, Any]
-    job_stats: Optional[Dict[str, Any]] = None
+    database_size_mb: Optional[float] = None
 
 class PaginationParams(BaseModel):
     """Pagination parameters."""
@@ -310,10 +156,9 @@ class PaginatedResponse(BaseModel):
 class SearchParams(BaseModel):
     """Search parameters."""
     width: Optional[int] = Field(None, ge=1, le=10, description="Filter by width")
-    length: Optional[int] = Field(None, ge=1, le=50, description="Filter by length")
-    min_equivalents: Optional[int] = Field(None, ge=0, description="Minimum equivalents")
-    max_equivalents: Optional[int] = Field(None, ge=0, description="Maximum equivalents")
-    gate_type: Optional[str] = Field(None, pattern="^(NOT|CNOT|TOFFOLI)$", description="Filter by gate type")
+    gate_count: Optional[int] = Field(None, ge=1, le=100, description="Filter by gate count")
+    is_representative: Optional[bool] = Field(None, description="Filter by representative status")
+    gate_composition: Optional[str] = Field(None, description="Filter by gate composition (e.g., '2,1,0')")
 
 class HealthResponse(BaseModel):
     """Health check response."""
@@ -322,11 +167,47 @@ class HealthResponse(BaseModel):
     version: str
     database_connected: bool
     sat_solver_available: bool
-    job_queue_running: bool = False
 
 class ErrorResponse(BaseModel):
     """Error response model."""
     error: str
     detail: Optional[str] = None
     timestamp: datetime
-    request_id: Optional[str] = None 
+    request_id: Optional[str] = None
+
+# Additional specialized responses for the frontend
+
+class CircuitVisualizationResponse(BaseModel):
+    """Response model for circuit visualization."""
+    circuit_id: int
+    ascii_diagram: str
+    gate_descriptions: List[str]
+    permutation_table: List[List[int]]
+
+class DimGroupSummaryResponse(BaseModel):
+    """Summary response for dimension group overview."""
+    id: int
+    width: int
+    gate_count: int
+    circuit_count: int
+    compositions: List[Dict[str, Any]]  # List of gate compositions and their counts
+
+class GenerationStatsResponse(BaseModel):
+    """Response for generation statistics."""
+    total_attempts: int
+    successful_generations: int
+    failed_generations: int
+    success_rate_percent: float
+    total_generation_time: float
+    average_generation_time: float
+
+# Request models for advanced operations
+
+class AdvancedSearchRequest(BaseModel):
+    """Advanced search request for circuits."""
+    width_range: Optional[Tuple[int, int]] = None
+    gate_count_range: Optional[Tuple[int, int]] = None
+    has_equivalents: Optional[bool] = None
+    gate_types: Optional[List[str]] = None  # ["X", "CX", "CCX"]
+    min_composition: Optional[Tuple[int, int, int]] = None
+    max_composition: Optional[Tuple[int, int, int]] = None 
