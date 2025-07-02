@@ -154,6 +154,12 @@ export default function CircuitDetails({
     };
 
     const generateGateDescriptions = () => {
+        // Use gate descriptions from visualization if available, otherwise generate from circuit data
+        if (visualization?.gate_descriptions) {
+            return visualization.gate_descriptions;
+        }
+
+        // Fallback: generate from circuit.gates if visualization not available
         if (!circuit.gates) return [];
 
         return circuit.gates.map((gate, index) => {
@@ -174,6 +180,12 @@ export default function CircuitDetails({
     };
 
     const generateTruthTable = () => {
+        // Use the permutation table from visualization if available, otherwise fallback to generating from circuit data
+        if (visualization?.permutation_table) {
+            return visualization.permutation_table;
+        }
+
+        // Fallback: generate from circuit.permutation if visualization not available
         if (!circuit.permutation) return [];
 
         const width = circuit.width;
@@ -244,9 +256,11 @@ export default function CircuitDetails({
                             <h4 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
                                 🔗 Circuit Diagram
                             </h4>
-                            <div className="circuit-diagram">
-                                {visualization?.ascii_diagram ||
-                                    "Loading diagram..."}
+                            <div className="bg-gray-900 text-green-400 p-4 rounded font-mono text-sm overflow-x-auto">
+                                <pre className="whitespace-pre">
+                                    {visualization?.ascii_diagram ||
+                                        "Loading diagram..."}
+                                </pre>
                             </div>
                         </div>
 
@@ -339,17 +353,36 @@ export default function CircuitDetails({
                                                         : "bg-gray-50"
                                                 }
                                             >
-                                                {row.map((cell, cellIndex) => (
-                                                    <td
-                                                        key={cellIndex}
-                                                        className="p-1 border text-center"
-                                                    >
-                                                        {cellIndex ===
-                                                        circuit.width + 1
-                                                            ? "→"
-                                                            : cell}
-                                                    </td>
-                                                ))}
+                                                {/* Render In# and input bits */}
+                                                {row
+                                                    .slice(0, circuit.width + 1)
+                                                    .map((cell, cellIndex) => (
+                                                        <td
+                                                            key={cellIndex}
+                                                            className="p-1 border text-center"
+                                                        >
+                                                            {cell}
+                                                        </td>
+                                                    ))}
+                                                {/* Render arrow column */}
+                                                <td className="p-1 border text-center">
+                                                    →
+                                                </td>
+                                                {/* Render Out# and output bits */}
+                                                {row
+                                                    .slice(circuit.width + 1)
+                                                    .map((cell, cellIndex) => (
+                                                        <td
+                                                            key={
+                                                                cellIndex +
+                                                                circuit.width +
+                                                                2
+                                                            }
+                                                            className="p-1 border text-center"
+                                                        >
+                                                            {cell}
+                                                        </td>
+                                                    ))}
                                             </tr>
                                         ))}
                                     </tbody>
